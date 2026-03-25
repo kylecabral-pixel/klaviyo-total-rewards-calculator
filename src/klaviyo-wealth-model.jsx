@@ -1,0 +1,1437 @@
+import { useState, useMemo, useEffect } from "react";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell } from "recharts";
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   KLAVIYO 2025 INTERIM BRAND TOKENS
+   ───────────────────────────────────────────────────────────────────────────── */
+const B = {
+  poppy:     "#F96353",
+  poppyDark: "#D94A3A",
+  cotton:    "#FFFCF9",
+  charcoal:  "#232121",
+  stone:     "#23302C",
+  eggplant:  "#744A6E",
+  violet:    "#9176D1",
+  lemon:     "#FCFC7E",
+  pink:      "#F1C0F2",
+  sky:       "#A6CFEB",
+  orange:    "#FFA43E",
+  border:    "#E8E4DF",
+  mist:      "#F7F4F0",
+  fog:       "#A09A95",
+  slate:     "#5C5654",
+};
+
+const LEGAL_DISCLAIMER = `The total compensation values presented in this tool are for illustrative and estimation purposes only. They are based on a set of assumptions and projections and do not constitute a promise, guarantee, or agreement of actual or future compensation.
+
+All compensation components—base salary, bonus, and equity—are subject to change and may be influenced by various factors including company performance, individual performance, and future business needs.
+ - Bonus: The bonus value shown represents a target amount only. Actual bonus payments are not guaranteed and will be determined based on company and individual performance, as well as other applicable factors.
+ - Equity Compensation Value: The equity value provided is an estimate based on current assumptions, including projected future stock price. Equity awards are subject to vesting schedules and market conditions, and the future value of any equity compensation is inherently uncertain. There is no guarantee that the stock price will increase; it may decrease, resulting in lower realized value.
+ - Equity Refresh Grants: Any projected equity refresh is for modeling purposes only and is contingent on performance and future grant decisions. There is no guarantee that a refresh grant will be awarded.
+
+Candidates should not rely solely on this tool for making compensation decisions. Final compensation details, including base salary, equity awards, and bonus eligibility, will be outlined in a formal offer letter or applicable agreement, if extended.`;
+
+const GOOGLE_FONT = `
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap');
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: ${B.cotton}; }
+input[type=range] { -webkit-appearance: none; appearance: none; }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; }
+.k-input:focus { outline: none; border-color: ${B.charcoal} !important; box-shadow: 0 0 0 3px rgba(35,33,33,0.08); }
+@keyframes fadeUp { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+.animate-in { animation: fadeUp 0.35s ease forwards; }
+`;
+
+/* ─── Regions & currency ────────────────────────────────────────────────────── */
+const REGIONS = {
+  US: { label: "United States", flag: "🇺🇸", currency: "USD", sym: "$",  locale: "en-US" },
+  UK: { label: "United Kingdom", flag: "🇬🇧", currency: "GBP", sym: "£",  locale: "en-GB" },
+  EU: { label: "Europe",         flag: "🇪🇺", currency: "EUR", sym: "€",  locale: "de-DE" },
+  CA: { label: "Canada",         flag: "🇨🇦", currency: "CAD", sym: "C$", locale: "en-CA" },
+  AU: { label: "Australia",      flag: "🇦🇺", currency: "AUD", sym: "A$", locale: "en-AU" },
+};
+
+const REGIONAL_BENEFITS = {
+  US: null,
+  UK: {
+    note: "Benefits reflect Klaviyo's global programs. In the UK, statutory benefits (NHS, National Insurance, statutory parental leave) apply alongside Klaviyo's supplemental offerings. Pension contributions replace the US 401(k).",
+    highlights: [
+      { icon: "🏥", title: "NHS + Private Health",       body: "UK employees have access to the NHS. Klaviyo provides private medical insurance on top of statutory coverage." },
+      { icon: "🏦", title: "Pension Contribution",       body: "Klaviyo contributes to your workplace pension per UK auto-enrolment requirements, plus additional employer contributions." },
+      { icon: "👶", title: "Enhanced Parental Leave",    body: "Up to 22 weeks fully paid for birthing parents, 16 weeks for non-birthing. Exceeds UK statutory maternity/paternity pay." },
+      { icon: "📈", title: "ESPP",                       body: "Purchase Klaviyo stock at a 15% discount via payroll deductions." },
+      { icon: "✨", title: "K-Flex LSA + K-Pro Learn",  body: "£1,000 lifestyle stipend and £2,500 annual learning budget (or local currency equivalent)." },
+      { icon: "🌴", title: "Flexible PTO",               body: "Unlimited flexible PTO. Klaviyo encourages 4+ weeks per year. Plus 11 paid holidays and 2 Recharge Days." },
+      { icon: "🧠", title: "Modern Health",              body: "8 therapy + 8 coaching sessions per year at no cost. Household members included." },
+      { icon: "🌍", title: "Global Sabbatical",          body: "4 weeks fully paid after 5 years of continuous service." },
+    ],
+  },
+  EU: {
+    note: "Benefits reflect Klaviyo's global programs. In Europe, statutory benefits vary by country and are provided alongside Klaviyo's supplemental offerings. Klaviyo complies with all local statutory requirements.",
+    highlights: [
+      { icon: "🏥", title: "Statutory Healthcare",       body: "Healthcare is provided via your country's statutory system. Klaviyo provides supplemental coverage where applicable." },
+      { icon: "🏦", title: "Local Pension / Retirement", body: "Klaviyo contributes to local pension schemes in accordance with country-specific regulations." },
+      { icon: "👶", title: "Enhanced Parental Leave",    body: "Up to 22 weeks fully paid for birthing parents. Exceeds statutory minimums across all EU jurisdictions." },
+      { icon: "📈", title: "ESPP",                       body: "Purchase Klaviyo stock at a 15% discount via payroll deductions." },
+      { icon: "✨", title: "K-Flex LSA + K-Pro Learn",  body: "€1,000 lifestyle stipend and €2,500 annual learning budget (or local currency equivalent)." },
+      { icon: "🌴", title: "Flexible PTO",               body: "Unlimited flexible PTO. Klaviyo encourages 4+ weeks per year plus local statutory holidays." },
+      { icon: "🧠", title: "Modern Health",              body: "8 therapy + 8 coaching sessions per year at no cost. Household members included." },
+      { icon: "🌍", title: "Global Sabbatical",          body: "4 weeks fully paid after 5 years of continuous service." },
+    ],
+  },
+  CA: {
+    note: "Benefits reflect Klaviyo's global programs. In Canada, provincial healthcare and statutory leave programs apply. Klaviyo provides supplemental benefits on top of statutory requirements.",
+    highlights: [
+      { icon: "🏥", title: "Provincial Healthcare + Extended", body: "Provincial health plans cover core medical. Klaviyo provides extended health, dental, and vision benefits." },
+      { icon: "🏦", title: "RRSP Matching",              body: "Klaviyo matches RRSP contributions to help you invest in your retirement, with 100% immediate vesting." },
+      { icon: "👶", title: "Enhanced Parental Leave",    body: "Up to 22 weeks fully paid for birthing parents. Supplements EI parental benefits." },
+      { icon: "📈", title: "ESPP",                       body: "Purchase Klaviyo stock at a 15% discount via payroll deductions." },
+      { icon: "✨", title: "K-Flex LSA + K-Pro Learn",  body: "C$1,000 lifestyle stipend and C$2,500 annual learning budget." },
+      { icon: "🌴", title: "Flexible PTO",               body: "Unlimited flexible PTO. Klaviyo encourages 4+ weeks per year plus statutory Canadian holidays." },
+      { icon: "🧠", title: "Modern Health",              body: "8 therapy + 8 coaching sessions per year at no cost. Household members included." },
+      { icon: "🌍", title: "Global Sabbatical",          body: "4 weeks fully paid after 5 years of continuous service." },
+    ],
+  },
+  AU: {
+    note: "Benefits reflect Klaviyo's global programs. In Australia, Medicare and statutory superannuation apply. Klaviyo contributes above the statutory superannuation guarantee.",
+    highlights: [
+      { icon: "🏥", title: "Medicare + Private Health",  body: "Medicare covers core healthcare. Klaviyo provides private health insurance contributions on top of statutory coverage." },
+      { icon: "🏦", title: "Superannuation",             body: "Klaviyo contributes above the statutory Superannuation Guarantee rate to support your long-term financial well-being." },
+      { icon: "👶", title: "Enhanced Parental Leave",    body: "Up to 22 weeks fully paid for birthing parents, 16 weeks for non-birthing — exceeds statutory paid parental leave." },
+      { icon: "📈", title: "ESPP",                       body: "Purchase Klaviyo stock at a 15% discount via payroll deductions." },
+      { icon: "✨", title: "K-Flex LSA + K-Pro Learn",  body: "A$1,000 lifestyle stipend and A$2,500 annual learning budget." },
+      { icon: "🌴", title: "Flexible PTO",               body: "Unlimited flexible PTO. Klaviyo encourages 4+ weeks per year plus Australian public holidays." },
+      { icon: "🧠", title: "Modern Health",              body: "8 therapy + 8 coaching sessions per year at no cost. Household members included." },
+      { icon: "🌍", title: "Global Sabbatical",          body: "4 weeks fully paid after 5 years of continuous service." },
+    ],
+  },
+};
+
+/* ─── Formatters ────────────────────────────────────────────────────────────── */
+const fmtMoney = (v, sym = "$") => {
+  if (!v || v === 0) return "—";
+  if (Math.abs(v) >= 1_000_000) return `${sym}${(v / 1_000_000).toFixed(2)}M`;
+  return `${sym}${Math.round(v).toLocaleString()}`;
+};
+const fmt$ = (v) => fmtMoney(v, "$");
+const fmtPct   = (v) => `${(v * 100).toFixed(0)}%`;
+const fmtDate  = (d) => d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+const addMonths = (d, m) => { const r = new Date(d); r.setMonth(r.getMonth() + m); return r; };
+const addDays   = (d, n) => new Date(d.getTime() + n * 86400000);
+
+/* ─── Vesting logic ─────────────────────────────────────────────────────────── */
+function grantDateToVestStart(grantDate) {
+  const yr = grantDate.getFullYear();
+  const checkpoints = [
+    new Date(yr, 1, 15), new Date(yr, 4, 15),
+    new Date(yr, 7, 15), new Date(yr, 10, 15),
+    new Date(yr + 1, 1, 15),
+  ];
+  for (const cp of checkpoints) if (grantDate <= cp) return cp;
+  return checkpoints[4];
+}
+function computeNewHireVesting(units, grantDate) {
+  const firstVest = grantDateToVestStart(grantDate);
+  const cliff     = addMonths(firstVest, 9);
+  const vbd       = {};
+  vbd[cliff.toISOString()] = units / 4;
+  for (let i = 1; i <= 12; i++) {
+    const d = addMonths(cliff, i * 3);
+    vbd[d.toISOString()] = (vbd[d.toISOString()] || 0) + units / 16;
+  }
+  return vbd;
+}
+function computeRefreshVesting(units, grantDate) {
+  const vbd   = {};
+  const twoYr = addMonths(grantDate, 24);
+  const triYr = addMonths(grantDate, 36);
+  const start = grantDateToVestStart(grantDate);
+  for (let i = 0; i < 20; i++) {
+    const d = addMonths(start, i * 3);
+    if (d > triYr) continue;
+    if (d > twoYr) vbd[d.toISOString()] = (vbd[d.toISOString()] || 0) + units / 8;
+    else if (d > grantDate) vbd[d.toISOString()] = (vbd[d.toISOString()] || 0) + units / 16;
+  }
+  return vbd;
+}
+function unitsInWindow(vbd, start, end) {
+  let t = 0;
+  for (const [ds, u] of Object.entries(vbd)) {
+    const d = new Date(ds);
+    if (d > start && d <= end) t += u;
+  }
+  return t;
+}
+
+function computeModel({ startDate, salary, bonusPct, newHireGrant, annualRefresh, currentPrice, growth1, growth2, signOn }) {
+  const oct2026  = new Date(2026, 9, 1);
+  const mar2027  = new Date(2027, 2, 1);
+  const nhGrant  = grantDateToVestStart(startDate);
+  const nhUnits  = newHireGrant / currentPrice;
+  const y1Prora  = startDate >= oct2026 ? 0
+    : startDate < new Date(2025, 2, 1) ? 1
+    : Math.max(0, Math.min(1, (mar2027 - startDate) / (365 * 86400000)));
+  const refreshGrants = [
+    { label: "Annual Refresh — Year 1", grantDate: new Date(2027, 1, 15), value: annualRefresh * y1Prora },
+    { label: "Annual Refresh — Year 2", grantDate: new Date(2028, 1, 15), value: annualRefresh },
+    { label: "Annual Refresh — Year 3", grantDate: new Date(2029, 1, 15), value: annualRefresh },
+    { label: "Annual Refresh — Year 4", grantDate: new Date(2030, 1, 15), value: annualRefresh },
+  ];
+  const p1 = [1,2,3,4].map(yr => currentPrice * Math.pow(1+growth1, yr));
+  const p2 = [1,2,3,4].map(yr => currentPrice * Math.pow(1+growth2, yr));
+  const nhV = computeNewHireVesting(nhUnits, nhGrant);
+  const rfV = refreshGrants.map(rg => ({ ...rg, units: rg.value / currentPrice, vbd: computeRefreshVesting(rg.value / currentPrice, rg.grantDate) }));
+  const yrEnd = [1,2,3,4].map(yr => addDays(nhGrant, 365 * yr));
+  const years = [1,2,3,4].map(yr => {
+    const start = yr === 1 ? new Date(0) : yrEnd[yr-2];
+    const end   = yrEnd[yr-1];
+    const nhU   = unitsInWindow(nhV, start, end);
+    const rfU   = rfV.reduce((s, rv) => s + unitsInWindow(rv.vbd, start, end), 0);
+    const total = nhU + rfU;
+    const eqF   = total * currentPrice;
+    const eqG1  = total * p1[yr-1];
+    const eqG2  = total * p2[yr-1];
+    const bonus = startDate >= oct2026 ? 0
+      : yr === 1 ? Math.max(0, (new Date(2027,0,1)-startDate)/(365*86400000)) * bonusPct * salary
+      : bonusPct * salary;
+    const sOn = yr===1 && startDate >= new Date(2026,0,1) ? signOn : 0;
+    return { yr, total, eqF, eqG1, eqG2, salary, bonus, sOn,
+      tdcF: salary+eqF+bonus+sOn, tdcG1: salary+eqG1+bonus+sOn, tdcG2: salary+eqG2+bonus+sOn };
+  });
+  return { years, p1, p2, nhGrant, refreshGrants };
+}
+
+/* ─── Benefits data ─────────────────────────────────────────────────────────── */
+const BENEFIT_CATEGORIES = [
+  {
+    id: "financial",
+    label: "Financial",
+    color: B.violet,
+    icon: "💰",
+    benefits: [
+      { id: "401k",    label: "401(k) Match",              desc: "4% employer match, 100% immediately vested. Your retirement savings are yours from day one.",    dynamic: (s) => s * 0.04,  note: "Based on your salary" },
+      { id: "espp",    label: "ESPP",                       desc: "Purchase Klaviyo stock at a 15% discount via payroll deductions. Invest in the company you're building.", value: null, note: "15% discount on stock purchases" },
+      { id: "hsa",     label: "HSA Employer Contribution",  desc: "Klaviyo contributes to your HSA when you elect the HDHP plan.", dynamicCoverage: { individual: 1000, family: 2000 }, note: "HDHP plan only" },
+    ],
+  },
+  {
+    id: "health",
+    label: "Health",
+    color: B.sky,
+    icon: "🏥",
+    benefits: [
+      { id: "medical",  label: "Medical",       desc: "3 BCBS plan options including PPO, HDHP (HSA-eligible), and HMO. Preventive care 100% covered.", value: null, note: "Klaviyo subsidizes the majority of your premium" },
+      { id: "dental",   label: "Dental",        desc: "$1,500 annual max. 100% preventive, 80% basic, 50% major. Orthodontia up to $1,500 lifetime.", value: null, note: "$4.68 bi-weekly employee cost" },
+      { id: "vision",   label: "Vision",        desc: "EyeMed: 100% exam coverage, $200 frame allowance, $150 contact lens allowance.", value: null, note: "$0.81 bi-weekly employee cost" },
+      { id: "mhealth",  label: "Modern Health", desc: "8 therapy + 8 coaching sessions per year at no cost. Household members included.", value: null, note: "~$2,400 retail value" },
+    ],
+  },
+  {
+    id: "protection",
+    label: "Protection",
+    color: B.eggplant,
+    icon: "🛡️",
+    benefits: [
+      { id: "life",  label: "Life & AD&D Insurance", desc: "1x annual salary up to $500K. Klaviyo pays 100% of premiums.", dynamic: (s) => s * 0.005, note: "Estimated premium value" },
+      { id: "std",   label: "Short-Term Disability", desc: "60% of weekly earnings up to $2,500/week for up to 26 weeks. 100% employer paid.", dynamic: (s) => s * 0.006, note: "Estimated premium value" },
+      { id: "ltd",   label: "Long-Term Disability",  desc: "60% of monthly earnings up to $12,500/month. 100% employer paid.", dynamic: (s) => s * 0.008, note: "Estimated premium value" },
+    ],
+  },
+  {
+    id: "timeoff",
+    label: "Time Off",
+    color: B.orange,
+    icon: "🌴",
+    benefits: [
+      { id: "fpto",       label: "Flexible PTO",      desc: "Unlimited flexible PTO. Klaviyo encourages 4+ weeks per year.", value: null, note: "Unlimited" },
+      { id: "holidays",   label: "Paid Holidays",     desc: "11 paid holidays + 2 Recharge Days annually.", value: null, note: "13 days/year" },
+      { id: "parental",   label: "Parental Leave",    desc: "22 weeks fully paid for birthing parents. 16 weeks for non-birthing parents.", value: null, note: "Up to 22 weeks paid" },
+      { id: "sabbatical", label: "Global Sabbatical", desc: "4 weeks of fully paid sabbatical after 5 years of continuous service.", dynamic: (s) => (s / 52) * 4, note: "After 5 years" },
+    ],
+  },
+  {
+    id: "lifestyle",
+    label: "Lifestyle & Perks",
+    color: B.poppy,
+    icon: "✨",
+    benefits: [
+      { id: "lsa",      label: "K-Flex LSA",        desc: "$250/quarter lifestyle spending account for wellness, fitness, personal growth.", value: 1000, note: "$1,000/year" },
+      { id: "kpro",     label: "K-Pro Learn",       desc: "Up to $2,500/year reimbursement for professional learning and development.", value: 2500, note: "$2,500/year" },
+      { id: "commuter", label: "Commuter Benefits", desc: "Up to $300/month tax-free for eligible transit and parking expenses.", value: 3600, note: "Up to $3,600/year" },
+      { id: "rethink",  label: "RethinkCare",       desc: "325+ courses and 9,000+ sessions for well-being, parenting, and neurodiversity.", value: null, note: "Included" },
+      { id: "libby",    label: "Libby Library",     desc: "Unlimited ebooks, audiobooks, and magazines via the Libby app.", value: null, note: "Included" },
+    ],
+  },
+];
+
+/** Candidate elections for US benefits modeling (illustrative $ — not payroll quotes). */
+const DEFAULT_BENEFIT_ELECTIONS = {
+  medicalPlan: "ppo",
+  enrollDental: true,
+  enrollVision: true,
+  retirement401kParticipate: true,
+  /** full_match = defer ≥4%; half_match = partial; none = $0 match */
+  retirementDeferral: "full_match",
+  esppParticipate: true,
+  hsaTakeEmployerContribution: true,
+  modernHealth: true,
+  coreInsurance: true,
+  lsa: true,
+  kpro: true,
+  commuter: true,
+};
+
+/** Estimated annual employer premium / subsidy share by medical tier (modeling only). */
+const MEDICAL_EMPLOYER_SUBSIDY = {
+  individual: { waive: 0, ppo: 9800, hdhp: 6400, hmo: 9200 },
+  family: { waive: 0, ppo: 19200, hdhp: 12600, hmo: 18000 },
+};
+
+const DENTAL_EMPLOYER = { individual: 1100, family: 2600 };
+const VISION_EMPLOYER = { individual: 150, family: 280 };
+
+function compute401kMatch(salary, e) {
+  if (!e.retirement401kParticipate) return 0;
+  if (e.retirementDeferral === "full_match") return salary * 0.04;
+  if (e.retirementDeferral === "half_match") return salary * 0.02;
+  return 0;
+}
+
+/** Rough ESPP economic benefit: participation × discount on eligible purchase (model). */
+function computeEsppEstimate(salary, participate) {
+  if (!participate) return 0;
+  const eligible = Math.min(salary * 0.15, 25000);
+  return Math.round(eligible * 0.15 * 0.5);
+}
+
+function computeBenefitsValue(salary, coverageType, e = DEFAULT_BENEFIT_ELECTIONS) {
+  const fam = coverageType === "family" ? "family" : "individual";
+  const mp = e.medicalPlan in MEDICAL_EMPLOYER_SUBSIDY[fam] ? e.medicalPlan : "ppo";
+  const medicalSubsidy = MEDICAL_EMPLOYER_SUBSIDY[fam][mp] ?? 0;
+  const dentalSubsidy = e.enrollDental ? DENTAL_EMPLOYER[fam] : 0;
+  const visionSubsidy = e.enrollVision ? VISION_EMPLOYER[fam] : 0;
+  const match401k = compute401kMatch(salary, e);
+  const hsa =
+    mp === "hdhp" && e.hsaTakeEmployerContribution
+      ? fam === "family"
+        ? 2000
+        : 1000
+      : 0;
+  const esppEst = computeEsppEstimate(salary, e.esppParticipate);
+  const modernVal = e.modernHealth ? 2400 : 0;
+  const protection = e.coreInsurance ? salary * (0.005 + 0.006 + 0.008) : 0;
+  const lsa = e.lsa ? 1000 : 0;
+  const kpro = e.kpro ? 2500 : 0;
+  const commuter = e.commuter ? 3600 : 0;
+  const quantifiable =
+    medicalSubsidy +
+    dentalSubsidy +
+    visionSubsidy +
+    match401k +
+    hsa +
+    esppEst +
+    modernVal +
+    protection +
+    lsa +
+    kpro +
+    commuter;
+  const summaryLines = [
+    ["Medical (est. employer share)", medicalSubsidy],
+    ["Dental", dentalSubsidy],
+    ["Vision", visionSubsidy],
+    ["401(k) match (modeled)", match401k],
+    ["HSA employer (HDHP)", hsa],
+    ["ESPP (est. value)", esppEst],
+    ["Modern Health (est.)", modernVal],
+    ["Life / STD / LTD (est.)", protection],
+    ["K-Flex LSA", lsa],
+    ["K-Pro Learn", kpro],
+    ["Commuter", commuter],
+  ];
+  return {
+    medicalSubsidy,
+    dentalSubsidy,
+    visionSubsidy,
+    match401k,
+    hsa,
+    esppEst,
+    modernHealthVal: modernVal,
+    protection,
+    lsa,
+    kpro,
+    commuter,
+    quantifiable,
+    summaryLines,
+  };
+}
+
+function benefitWaived(benefitId, e) {
+  switch (benefitId) {
+    case "401k":
+      return !e.retirement401kParticipate || e.retirementDeferral === "none";
+    case "espp":
+      return !e.esppParticipate;
+    case "hsa":
+      return e.medicalPlan !== "hdhp" || !e.hsaTakeEmployerContribution;
+    case "medical":
+      return e.medicalPlan === "waive";
+    case "dental":
+      return !e.enrollDental;
+    case "vision":
+      return !e.enrollVision;
+    case "mhealth":
+      return !e.modernHealth;
+    case "life":
+    case "std":
+    case "ltd":
+      return !e.coreInsurance;
+    case "lsa":
+      return !e.lsa;
+    case "kpro":
+      return !e.kpro;
+    case "commuter":
+      return !e.commuter;
+    default:
+      return false;
+  }
+}
+
+/* ─── Shared UI primitives ──────────────────────────────────────────────────── */
+const Label = ({ children, light }) => (
+  <div style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:10, fontWeight:700, letterSpacing:"0.1em", textTransform:"uppercase", color:light?"rgba(255,255,255,0.45)":B.fog, marginBottom:5 }}>
+    {children}
+  </div>
+);
+
+function KInput({ label, value, onChange, type="number", prefix, suffix, min, max, step, hint, readOnly }) {
+  const [f, setF] = useState(false);
+  const ro = !!readOnly;
+  return (
+    <div style={{ marginBottom:13 }}>
+      <Label>{label}</Label>
+      <div style={{ display:"flex", alignItems:"center", background:ro?B.mist:"#fff", border:`1.5px solid ${f&&!ro?B.charcoal:B.border}`, borderRadius:6, overflow:"hidden", transition:"all 0.15s", boxShadow:f&&!ro?"0 0 0 3px rgba(35,33,33,0.07)":"none" }}>
+        {prefix && <span style={{ padding:"0 10px", fontSize:12, color:B.fog, borderRight:`1px solid ${B.border}`, background:ro?B.mist:B.mist, fontFamily:"'IBM Plex Mono',monospace", lineHeight:"36px", whiteSpace:"nowrap" }}>{prefix}</span>}
+        <input type={type} value={value} min={min} max={max} step={step} className="k-input" readOnly={ro}
+          onFocus={()=>!ro&&setF(true)} onBlur={()=>setF(false)}
+          onChange={e=>{
+            if (ro) return;
+            onChange(type==="number"?parseFloat(e.target.value)||0:e.target.value);
+          }}
+          style={{ flex:1, border:"none", outline:"none", padding:"0 10px", height:36, fontSize:13, fontFamily:"'IBM Plex Mono',monospace", background:"transparent", color:B.charcoal, width:"100%", cursor:ro?"default":"text" }}
+        />
+        {suffix && <span style={{ padding:"0 10px", fontSize:12, color:B.fog, borderLeft:`1px solid ${B.border}`, background:B.mist, fontFamily:"'IBM Plex Mono',monospace", lineHeight:"36px" }}>{suffix}</span>}
+      </div>
+      {hint && <div style={{ fontSize:10, color:B.fog, marginTop:3, lineHeight:1.45, fontFamily:"'Instrument Sans',sans-serif" }}>{hint}</div>}
+    </div>
+  );
+}
+
+const Divider = ({ label }) => (
+  <div style={{ display:"flex", alignItems:"center", gap:8, margin:"18px 0 14px" }}>
+    <span style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:10, fontWeight:800, color:B.slate, textTransform:"uppercase", letterSpacing:"0.1em", whiteSpace:"nowrap" }}>{label}</span>
+    <div style={{ flex:1, height:1, background:B.border }} />
+  </div>
+);
+
+const FlagMark = ({ size=20, color="#fff" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <rect x="3" y="2" width="3.5" height="20" rx="1.75" fill={color}/>
+    <path d="M6.5 4L19 9.5L6.5 15.5V4Z" fill={color}/>
+  </svg>
+);
+
+const Badge = ({ children, color }) => (
+  <span style={{ display:"inline-block", background:color||B.poppy, color:"#fff", fontSize:9, fontWeight:800, letterSpacing:"0.1em", textTransform:"uppercase", padding:"2px 7px", borderRadius:3, fontFamily:"'Instrument Sans',sans-serif" }}>
+    {children}
+  </span>
+);
+
+/* ─── Year card ─────────────────────────────────────────────────────────────── */
+const YearCard = ({ data, scenario, growth1, growth2, currentPrice, active, fmtC = fmt$ }) => {
+  const eq  = scenario==="flat"?data.eqF:scenario==="g1"?data.eqG1:data.eqG2;
+  const tdc = scenario==="flat"?data.tdcF:scenario==="g1"?data.tdcG1:data.tdcG2;
+  const px  = scenario==="flat"?currentPrice:scenario==="g1"?currentPrice*Math.pow(1+growth1,data.yr):currentPrice*Math.pow(1+growth2,data.yr);
+  const eqShare = tdc>0?Math.min(1,eq/tdc):0;
+  return (
+    <div style={{ flex:"1 1 148px", minWidth:140, background:active?B.charcoal:"#fff", border:`1.5px solid ${active?B.charcoal:B.border}`, borderRadius:10, padding:"16px 15px 14px", position:"relative", overflow:"hidden", transition:"all 0.2s" }}>
+      <div style={{ position:"absolute", top:0, left:0, right:0, height:3, background:active?B.poppy:B.border }} />
+      <div style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:10, fontWeight:800, color:active?"rgba(255,255,255,0.4)":B.fog, textTransform:"uppercase", letterSpacing:"0.12em", marginBottom:11, marginTop:4 }}>Year {data.yr}</div>
+      {[
+        { l:"Salary", v:fmtC(data.salary), hi:false },
+        { l:"Bonus",  v:fmtC(data.bonus),  hi:false, dim:!data.bonus },
+        ...(data.sOn?[{ l:"Sign-On", v:fmtC(data.sOn), hi:true }]:[]),
+        { l:"Equity", v:fmtC(eq), hi:true },
+      ].map(r=>(
+        <div key={r.l} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
+          <span style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:11, color:active?(r.dim?"rgba(255,255,255,0.2)":"rgba(255,255,255,0.55)"):(r.dim?B.fog:B.slate) }}>{r.l}</span>
+          <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:11, fontWeight:600, color:r.hi?B.poppy:active?"rgba(255,255,255,0.8)":B.charcoal }}>{r.v}</span>
+        </div>
+      ))}
+      <div style={{ height:2, background:active?"rgba(255,255,255,0.1)":B.border, borderRadius:1, margin:"10px 0" }}>
+        <div style={{ height:"100%", width:`${eqShare*100}%`, background:B.poppy, borderRadius:1, transition:"width 0.5s ease" }} />
+      </div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
+        <span style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em", color:active?"rgba(255,255,255,0.35)":B.fog }}>Total</span>
+        <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:16, fontWeight:700, color:active?"#fff":B.charcoal, letterSpacing:"-0.03em" }}>{fmtC(tdc)}</span>
+      </div>
+      {data.total>0&&<div style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:9, color:active?"rgba(255,255,255,0.25)":B.fog, marginTop:2, textAlign:"right" }}>{Math.round(data.total).toLocaleString()} RSUs @ ${px.toFixed(2)}</div>}
+    </div>
+  );
+};
+
+/* ─── Chart tooltip ─────────────────────────────────────────────────────────── */
+const ChartTip = ({ active, payload, label, fmtC = fmt$ }) => {
+  if (!active||!payload?.length) return null;
+  const total = payload.reduce((s,p)=>s+p.value,0);
+  return (
+    <div style={{ background:B.charcoal, borderRadius:8, padding:"12px 16px", fontSize:12, fontFamily:"'Instrument Sans',sans-serif", color:"#fff", boxShadow:"0 8px 32px rgba(0,0,0,0.25)", minWidth:190 }}>
+      <div style={{ fontWeight:800, marginBottom:8, color:B.poppy, fontSize:10, letterSpacing:"0.1em", textTransform:"uppercase" }}>{label}</div>
+      {payload.map(p=>(
+        <div key={p.name} style={{ display:"flex", justifyContent:"space-between", gap:16, marginBottom:3 }}>
+          <span style={{ color:"rgba(255,255,255,0.5)", fontSize:11 }}>{p.name}</span>
+          <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontWeight:600 }}>{fmtC(p.value)}</span>
+        </div>
+      ))}
+      <div style={{ borderTop:"1px solid rgba(255,255,255,0.1)", marginTop:8, paddingTop:8, display:"flex", justifyContent:"space-between" }}>
+        <span style={{ color:"rgba(255,255,255,0.5)", fontSize:11 }}>Total</span>
+        <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontWeight:800, color:B.poppy }}>{fmtC(total)}</span>
+      </div>
+    </div>
+  );
+};
+
+/* ─── Benefit card ──────────────────────────────────────────────────────────── */
+const BenefitCard = ({ benefit, salary, coverageType, accentColor, fmtC = fmt$ }) => {
+  let displayValue = null;
+  if (benefit.value) displayValue = fmtC(benefit.value);
+  else if (benefit.dynamic) displayValue = fmtC(benefit.dynamic(salary));
+  else if (benefit.dynamicCoverage) displayValue = fmtC(benefit.dynamicCoverage[coverageType]);
+
+  return (
+    <div style={{ background:"#fff", border:`1.5px solid ${B.border}`, borderRadius:8, padding:"12px 14px", display:"flex", flexDirection:"column", gap:4 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
+        <div style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:12, fontWeight:700, color:B.charcoal, lineHeight:1.3 }}>{benefit.label}</div>
+        {displayValue && (
+          <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:13, fontWeight:700, color:accentColor||B.poppy, whiteSpace:"nowrap" }}>{displayValue}</div>
+        )}
+      </div>
+      <div style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:11, color:B.slate, lineHeight:1.5 }}>{benefit.desc}</div>
+      <div style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:10, color:B.fog, marginTop:2 }}>{benefit.note}</div>
+    </div>
+  );
+};
+
+function readOfferTokenFromUrl() {
+  try {
+    const t = new URLSearchParams(window.location.search).get("offer");
+    return t && t.trim() ? t.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** URL `?offer=` wins; in dev, `VITE_DEFAULT_OFFER_TOKEN` loads a demo offer without pasting the link. */
+function readInitialOfferToken() {
+  const fromUrl = readOfferTokenFromUrl();
+  if (fromUrl) return fromUrl;
+  if (import.meta.env.DEV) {
+    const fromEnv = import.meta.env.VITE_DEFAULT_OFFER_TOKEN;
+    if (fromEnv && String(fromEnv).trim()) return String(fromEnv).trim();
+  }
+  return null;
+}
+
+/* ─── Main component ────────────────────────────────────────────────────────── */
+export default function KlaviyoWealthModel() {
+  const [offerToken] = useState(readInitialOfferToken);
+  const [offerLoadStatus, setOfferLoadStatus] = useState(() =>
+    readInitialOfferToken() ? "loading" : "legacy",
+  );
+  const [offerLoadError, setOfferLoadError] = useState(null);
+
+  const [name,          setName]         = useState("");
+  const [role,          setRole]         = useState("");
+  const [startDate,     setStartDate]    = useState("2026-05-15");
+  const [salary,        setSalary]       = useState(300000);
+  const [bonusPct,      setBonusPct]     = useState(0.20);
+  const [newHireGrant,  setNewHireGrant] = useState(2000000);
+  const [annualRefresh, setAnnualRefresh]= useState(200000);
+  const [currentPrice,  setCurrentPrice] = useState(25);
+  const [growth1,       setGrowth1]      = useState(0.10);
+  const [growth2,       setGrowth2]      = useState(0.15);
+  const [signOn,        setSignOn]       = useState(50000);
+  const [relo,          setRelo]         = useState(0);
+  const [scenario,      setScenario]     = useState("g1");
+  const [coverageType,  setCoverageType] = useState("individual");
+  const [region,        setRegion]       = useState("US");
+  const [activeTab,     setActiveTab]    = useState("comp");
+  const [showDisc,      setShowDisc]     = useState(false);
+  const [copied,        setCopied]       = useState(false);
+  const [compLookupErr, setCompLookupErr]= useState(null);
+  const [compLookupLoading, setCompLookupLoading] = useState(false);
+  const [usBenefitsDoc, setUsBenefitsDoc] = useState(null);
+
+  const offerMode = offerLoadStatus === "ok";
+
+  useEffect(() => {
+    if (!offerToken) {
+      setOfferLoadStatus("legacy");
+      return;
+    }
+    let cancelled = false;
+    setOfferLoadStatus("loading");
+    setOfferLoadError(null);
+    fetch(`/api/offer?token=${encodeURIComponent(offerToken)}`)
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Offer not found");
+        return data;
+      })
+      .then((data) => {
+        if (cancelled) return;
+        setName(data.name ?? "");
+        setRole(data.role ?? "");
+        setStartDate(data.startDate ?? "2026-05-15");
+        setSalary(Number(data.salary) || 0);
+        setBonusPct(
+          data.bonusPct != null ? Number(data.bonusPct) : 0.2,
+        );
+        setNewHireGrant(Number(data.newHireGrant) || 0);
+        setAnnualRefresh(Number(data.annualRefresh) || 0);
+        setCurrentPrice(Number(data.currentPrice) || 25);
+        setGrowth1(data.growth1 != null ? Number(data.growth1) : 0.1);
+        setGrowth2(data.growth2 != null ? Number(data.growth2) : 0.15);
+        setSignOn(data.signOn != null ? Number(data.signOn) : 0);
+        setRelo(data.relo != null ? Number(data.relo) : 0);
+        const reg = data.region;
+        if (reg && REGIONS[reg]) setRegion(reg);
+        const cov = data.coverageType;
+        if (cov === "individual" || cov === "family") setCoverageType(cov);
+        setOfferLoadStatus("ok");
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        const msg =
+          e?.message ||
+          "Invalid or expired link. Contact your recruiter.";
+        const apiHint =
+          import.meta.env.DEV
+            ? " In dev, run `npm run dev:all` (or `npm run dev:api`) so /api proxies to port 3001."
+            : "";
+        setOfferLoadError(`${msg}${apiHint}`);
+        setOfferLoadStatus("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [offerToken]);
+
+  useEffect(() => {
+    if (offerLoadStatus !== "legacy") return;
+    const q = role.trim();
+    if (!q) {
+      setCompLookupErr(null);
+      setCompLookupLoading(false);
+      return;
+    }
+    const t = setTimeout(async () => {
+      setCompLookupLoading(true);
+      setCompLookupErr(null);
+      try {
+        const res = await fetch(
+          `/api/compensation/lookup?${new URLSearchParams({ q, region })}`,
+        );
+        const data = await res.json();
+        if (!res.ok) {
+          setCompLookupErr(data.error || "Compensation lookup failed");
+          setCompLookupLoading(false);
+          return;
+        }
+        const v = data.values;
+        if (v) {
+          setSalary(v.salary);
+          setBonusPct(v.bonusPct);
+          setNewHireGrant(v.newHireGrant);
+          setAnnualRefresh(v.annualRefresh);
+          setSignOn(v.signOn ?? 0);
+          setRelo(v.relo ?? 0);
+        }
+      } catch {
+        setCompLookupErr(
+          "Could not reach API. Run npm run dev:all (or dev:api + dev).",
+        );
+      } finally {
+        setCompLookupLoading(false);
+      }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [role, region, offerLoadStatus]);
+
+  useEffect(() => {
+    if (region !== "US") {
+      setUsBenefitsDoc(null);
+      return;
+    }
+    let cancelled = false;
+    fetch("/api/benefits/us")
+      .then((r) => r.json())
+      .then((data) => {
+        if (!cancelled && data.ok) setUsBenefitsDoc(data);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [region]);
+
+  const inputs = useMemo(() => {
+    const parsed = new Date(`${startDate}T12:00:00`);
+    const safeStart =
+      Number.isNaN(parsed.getTime()) ? new Date("2026-05-15T12:00:00") : parsed;
+    const safePrice = Math.max(0.01, Number(currentPrice) || 0);
+    return {
+      startDate: safeStart,
+      salary,
+      bonusPct,
+      newHireGrant,
+      annualRefresh,
+      currentPrice: safePrice,
+      growth1,
+      growth2,
+      signOn,
+    };
+  }, [
+    startDate,
+    salary,
+    bonusPct,
+    newHireGrant,
+    annualRefresh,
+    currentPrice,
+    growth1,
+    growth2,
+    signOn,
+  ]);
+
+  const { years, p1, p2, nhGrant, refreshGrants } = useMemo(()=>computeModel(inputs),[inputs]);
+  const bv = useMemo(()=>computeBenefitsValue(salary, coverageType),[salary, coverageType]);
+
+  // Currency helpers
+  const { sym, currency } = REGIONS[region];
+  const fmtC    = (v) => fmtMoney(v, sym);
+  const makeTip = (props) => <ChartTip {...props} fmtC={fmtC} />;
+
+  const tdcKey = scenario==="flat"?"tdcF":scenario==="g1"?"tdcG1":"tdcG2";
+  const eqKey  = scenario==="flat"?"eqF":scenario==="g1"?"eqG1":"eqG2";
+  const total4 = years.reduce((s,y)=>s+y[tdcKey],0);
+  const annualBenefits = bv.quantifiable;
+  const total4WithBenefits = total4 + (annualBenefits * 4);
+
+  // Pie chart data
+  const PIE_COLORS = {
+    base:     "#C8C3BE",
+    equity:   B.poppy,
+    bonus:    B.orange,
+    signOn:   B.sky,
+    relo:     B.violet,
+    benefits: B.lemon,
+  };
+
+  const buildPieData = (baseSal, eq, bon, sOn, reloAmt, ben) => {
+    const items = [
+      { name: "Base Salary",     value: Math.round(baseSal), color: PIE_COLORS.base },
+      { name: "Equity (RSUs)",   value: Math.round(eq),      color: PIE_COLORS.equity },
+      { name: "On-Target Bonus", value: Math.round(bon),     color: PIE_COLORS.bonus },
+      { name: "Sign-On",         value: Math.round(sOn),     color: PIE_COLORS.signOn },
+      { name: "Relocation",      value: Math.round(reloAmt), color: PIE_COLORS.relo },
+      { name: "Benefits Value",  value: Math.round(ben),     color: PIE_COLORS.benefits },
+    ];
+    return items.filter(d => d.value > 0);
+  };
+
+  const yr1 = years[0];
+  const pieYear1 = buildPieData(yr1.salary, yr1[eqKey], yr1.bonus, yr1.sOn + signOn, relo, annualBenefits);
+
+  const avgEquity = years.reduce((s,y)=>s+y[eqKey],0) / 4;
+  const avgBonus  = years.reduce((s,y)=>s+y.bonus,0) / 4;
+  const avgSignOn = signOn / 4;
+  const avgRelo   = relo / 4;
+  const pieAvg = buildPieData(salary, avgEquity, avgBonus, avgSignOn, avgRelo, annualBenefits);
+
+  const barData = years.map((y) => ({
+    name: `Yr ${y.yr}`,
+    Cash: Math.round(y.salary + y.bonus + y.sOn),
+    "Equity (RSUs)": Math.round(y[eqKey]),
+    Benefits: Math.round(annualBenefits),
+  }));
+
+  const tableRows = [
+    { label:"RSUs Vesting",                                vals:years.map(y=>y.total>0?Math.round(y.total).toLocaleString():"—"), mono:true },
+    { label:"Equity — No Appreciation",                    vals:years.map(y=>fmtC(y.eqF)),   hl:scenario==="flat", sep:true },
+    { label:`Equity — Assum. 1 (+${fmtPct(growth1)}/yr)`, vals:years.map(y=>fmtC(y.eqG1)),  hl:scenario==="g1" },
+    { label:`Equity — Assum. 2 (+${fmtPct(growth2)}/yr)`, vals:years.map(y=>fmtC(y.eqG2)),  hl:scenario==="g2" },
+    { label:"Base Salary",   vals:years.map(y=>fmtC(y.salary)), sep:true },
+    { label:"Target Bonus",  vals:years.map(y=>fmtC(y.bonus)) },
+    { label:"Sign-On Bonus", vals:years.map(y=>fmtC(y.sOn)) },
+    { label:"Total — No Appreciation",                     vals:years.map(y=>fmtC(y.tdcF)),  hl:scenario==="flat", bold:true, sep:true },
+    { label:`Total — Assum. 1 (+${fmtPct(growth1)}/yr)`,  vals:years.map(y=>fmtC(y.tdcG1)), hl:scenario==="g1",  bold:true },
+    { label:`Total — Assum. 2 (+${fmtPct(growth2)}/yr)`,  vals:years.map(y=>fmtC(y.tdcG2)), hl:scenario==="g2",  bold:true },
+  ];
+
+  const handleShare = () => {
+    const p = new URLSearchParams({
+      name,
+      role,
+      start: startDate,
+      salary,
+      bonus: bonusPct * 100,
+      grant: newHireGrant,
+      refresh: annualRefresh,
+      price: currentPrice,
+      g1: growth1 * 100,
+      g2: growth2 * 100,
+      signOn,
+      region,
+    });
+    if (offerToken) p.set("offer", offerToken);
+    navigator.clipboard
+      .writeText(
+        `${window.location.origin}${window.location.pathname}?${p}`,
+      )
+      .catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2200);
+  };
+
+  const tabStyle = (id) => ({
+    flex:1, padding:"9px 8px", border:`1.5px solid ${activeTab===id?B.charcoal:B.border}`,
+    borderRadius:7, background:activeTab===id?B.charcoal:"#fff",
+    color:activeTab===id?"#fff":B.slate,
+    fontSize:11, fontWeight:700, fontFamily:"'Instrument Sans',sans-serif",
+    cursor:"pointer", transition:"all 0.15s", letterSpacing:"0.03em",
+  });
+
+  const regionalBenefits = REGIONAL_BENEFITS[region];
+
+  return (
+    <>
+      <style>{GOOGLE_FONT}</style>
+      <div style={{ fontFamily:"'Instrument Sans','Helvetica Neue',sans-serif", background:B.cotton, minHeight:"100vh", color:B.charcoal }}>
+
+        {offerLoadStatus === "error" && offerToken && (
+          <div
+            role="alert"
+            style={{
+              background: "#fff0f0",
+              borderBottom: `2px solid ${B.poppy}`,
+              padding: "14px 28px",
+              fontFamily: "'Instrument Sans',sans-serif",
+              fontSize: 13,
+              color: "#a32020",
+              maxWidth: 1300,
+              margin: "0 auto",
+            }}
+          >
+            {offerLoadError ||
+              "Invalid or expired link. Contact your recruiter."}
+          </div>
+        )}
+
+        {/* ══ HEADER ══════════════════════════════════════════════════════════ */}
+        <header style={{ background:B.charcoal, position:"sticky", top:0, zIndex:100, borderBottom:`3px solid ${B.poppy}` }}>
+          <div style={{ maxWidth:1300, margin:"0 auto", padding:"0 28px", height:56, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+              <FlagMark size={20} color="#fff" />
+              <span style={{ color:"#fff", fontSize:17, fontWeight:800, letterSpacing:"-0.03em", lineHeight:1 }}>klaviyo</span>
+              <span style={{ color:"rgba(255,255,255,0.18)", margin:"0 4px", fontSize:15 }}>|</span>
+              <span style={{ color:"rgba(255,255,255,0.45)", fontSize:12, fontWeight:500, letterSpacing:"0.01em" }}>Total Rewards Model</span>
+            </div>
+            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+              <span style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.1em", color:"rgba(255,255,255,0.25)" }}>Confidential</span>
+              {import.meta.env.DEV && !readOfferTokenFromUrl() && (
+                <a
+                  href="?offer=klaviyo-hackathon-demo-offer-token"
+                  style={{
+                    fontSize:11,
+                    fontWeight:600,
+                    color:"rgba(255,255,255,0.55)",
+                    fontFamily:"'Instrument Sans',sans-serif",
+                    textDecoration:"underline",
+                    textUnderlineOffset:3,
+                  }}
+                >
+                  Sample offer link
+                </a>
+              )}
+              <button onClick={handleShare} style={{ display:"flex", alignItems:"center", gap:6, background:copied?B.sky:B.poppy, color:copied?B.charcoal:"#fff", border:"none", borderRadius:6, padding:"7px 15px", fontSize:12, fontWeight:700, cursor:"pointer", transition:"background 0.2s", letterSpacing:"0.02em", fontFamily:"'Instrument Sans',sans-serif" }}>
+                {copied
+                  ? <><svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 8L6.5 11.5L13 4.5" stroke={B.charcoal} strokeWidth="2.2" strokeLinecap="round"/></svg> Copied!</>
+                  : <><svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M10 1H6a1 1 0 00-1 1v9a1 1 0 001 1h6a1 1 0 001-1V4l-3-3z" stroke="#fff" strokeWidth="1.4"/><path d="M10 1v3h3M3 5H2a1 1 0 00-1 1v7a1 1 0 001 1h6a1 1 0 001-1v-1" stroke="#fff" strokeWidth="1.4"/></svg> Share Link</>
+                }
+              </button>
+            </div>
+          </div>
+        </header>
+
+        {/* ══ HERO BANNER ═════════════════════════════════════════════════════ */}
+        <div style={{ background:B.charcoal, borderBottom:`1px solid rgba(255,255,255,0.06)` }}>
+          <div style={{ maxWidth:1300, margin:"0 auto", padding:"32px 28px 28px", display:"flex", justifyContent:"space-between", alignItems:"flex-end", flexWrap:"wrap", gap:20 }}>
+            <div className="animate-in">
+              {(name||role)&&(
+                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
+                  <Badge>Prepared for</Badge>
+                  <span style={{ fontSize:12, color:"rgba(255,255,255,0.6)", fontWeight:600 }}>{[name,role].filter(Boolean).join(" · ")}</span>
+                </div>
+              )}
+              <h1 style={{ fontSize:32, fontWeight:800, color:"#fff", letterSpacing:"-0.035em", lineHeight:1.1, margin:0 }}>
+                Your path to wealth<br/>
+                <span style={{ color:B.poppy }}>at Klaviyo.</span>
+              </h1>
+              <p style={{ marginTop:10, fontSize:13, color:"rgba(255,255,255,0.4)", fontWeight:400, lineHeight:1.5 }}>
+                First RSU vest: {fmtDate(nhGrant)} · New hire grant: {Math.round(newHireGrant/currentPrice).toLocaleString()} RSUs
+              </p>
+            </div>
+            <div className="animate-in" style={{ display:"flex", gap:20, flexWrap:"wrap", textAlign:"right", alignItems:"flex-start" }}>
+              {/* Region selector */}
+              <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:6 }}>
+                <div style={{ display:"flex", gap:5, flexWrap:"wrap", justifyContent:"flex-end" }}>
+                  {Object.entries(REGIONS).map(([key, r]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      disabled={offerMode}
+                      onClick={() => !offerMode && setRegion(key)}
+                      style={{
+                        padding:"4px 10px", border:`1.5px solid ${region===key?"rgba(255,255,255,0.5)":"rgba(255,255,255,0.1)"}`,
+                        borderRadius:5, background:region===key?"rgba(255,255,255,0.12)":"transparent",
+                        color:region===key?"#fff":"rgba(255,255,255,0.35)", fontSize:11, fontWeight:700,
+                        cursor: offerMode ? "default" : "pointer", opacity: offerMode ? 0.85 : 1,
+                        fontFamily:"'Instrument Sans',sans-serif", transition:"all 0.15s",
+                      }}
+                    >
+                      {r.flag} {r.currency}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ fontSize:9, color:"rgba(255,255,255,0.2)", fontFamily:"'Instrument Sans',sans-serif" }}>All amounts in {currency} · {REGIONS[region].label}{offerMode ? " · set by recruiter" : ""}</div>
+              </div>
+              <div style={{ borderLeft:"1px solid rgba(255,255,255,0.1)", paddingLeft:20 }}>
+                <div style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.12em", color:"rgba(255,255,255,0.3)", marginBottom:6 }}>4-Year Cash + Equity</div>
+                <div style={{ fontSize:36, fontWeight:800, color:B.poppy, fontFamily:"'IBM Plex Mono',monospace", letterSpacing:"-0.05em", lineHeight:1 }}>{fmtC(total4)}</div>
+                <div style={{ fontSize:11, color:"rgba(255,255,255,0.25)", marginTop:4 }}>
+                  {scenario==="flat"?"No stock appreciation":scenario==="g1"?`+${fmtPct(growth1)}/yr — Assumption 1`:`+${fmtPct(growth2)}/yr — Assumption 2`}
+                </div>
+              </div>
+              <div style={{ borderLeft:"1px solid rgba(255,255,255,0.1)", paddingLeft:20 }}>
+                <div style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.12em", color:"rgba(255,255,255,0.3)", marginBottom:6 }}>4-Year Total Rewards</div>
+                <div style={{ fontSize:36, fontWeight:800, color:B.lemon, fontFamily:"'IBM Plex Mono',monospace", letterSpacing:"-0.05em", lineHeight:1 }}>{fmtC(total4WithBenefits)}</div>
+                <div style={{ fontSize:11, color:"rgba(255,255,255,0.25)", marginTop:4 }}>Includes ~{fmtC(annualBenefits)}/yr in benefits value</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ══ BODY LAYOUT ═════════════════════════════════════════════════════ */}
+        <div style={{ maxWidth:1300, margin:"0 auto", padding:"28px 28px 80px", display:"flex", gap:22, alignItems:"flex-start" }}>
+
+          {/* ── SIDEBAR ──────────────────────────────────────────────────── */}
+          <aside style={{ width:268, flexShrink:0, background:"#fff", borderRadius:10, border:`1.5px solid ${B.border}`, padding:"20px 18px", position:"sticky", top:78, maxHeight:"calc(100vh - 100px)", overflowY:"auto" }}>
+            <Divider label="Candidate" />
+            {offerLoadStatus === "loading" && (
+              <div style={{ fontSize:11, color:B.slate, marginBottom:12, fontFamily:"'Instrument Sans',sans-serif" }}>
+                Loading your offer…
+              </div>
+            )}
+            <KInput label="Candidate Name"  value={name}      onChange={setName}     type="text" readOnly={offerMode} hint={offerMode ? "Set by recruiter for this offer link" : "Appears in the header"} />
+            <KInput label="Role / Level"    value={role}      onChange={setRole}     type="text" readOnly={offerMode} hint={offerMode ? "Set by recruiter for this offer link" : "e.g. Director, Engineering — L6"} />
+            {!offerMode && (compLookupLoading || compLookupErr) && (
+              <div style={{ fontSize:10, color: compLookupErr ? B.poppy : B.fog, marginTop:-8, marginBottom:10, lineHeight:1.45, fontFamily:"'Instrument Sans',sans-serif" }}>
+                {compLookupLoading ? "Loading compensation ranges…" : compLookupErr}
+              </div>
+            )}
+            <Divider label="Compensation" />
+            <KInput label="Projected Start Date" value={startDate} onChange={setStartDate} type="date" readOnly={offerMode} hint={offerMode ? "Set by recruiter" : "Drives vesting schedule & bonus proration"} />
+            <KInput label="Base Salary"     value={salary}    onChange={setSalary}   prefix="$" min={0} step={10000} readOnly hint={offerMode ? "Set by recruiter" : "Level-based estimate from API (not in CSV)"} />
+            <KInput label="Bonus Target"    value={bonusPct*100} onChange={v=>setBonusPct(v/100)} suffix="%" min={0} max={100} step={5} readOnly hint={offerMode ? "Set by recruiter" : "% of base from 2026 bonus table; prorated in Year 1"} />
+            <KInput label="Sign-On Bonus"   value={signOn}    onChange={setSignOn}   prefix="$" min={0} step={5000} readOnly hint={offerMode ? "Set by recruiter" : "From offer; default 0 from lookup"} />
+            <KInput label="Relocation"      value={relo}      onChange={setRelo}     prefix="$" min={0} step={5000} readOnly hint={offerMode ? "Set by recruiter" : "From offer; default 0 from lookup"} />
+            <Divider label="Equity" />
+            <KInput label="New Hire RSU Grant"    value={newHireGrant}  onChange={setNewHireGrant}  prefix="$" min={0} step={50000}  readOnly hint={offerMode ? "Set by recruiter" : "Pilot R&D mid × tier; from Source CSV via API"} />
+            <KInput label="Target Annual Refresh" value={annualRefresh} onChange={setAnnualRefresh} prefix="$" min={0} step={10000}  readOnly hint={offerMode ? "Set by recruiter" : "Derived from new-hire mid (~17.5%); from API"} />
+            <Divider label="Stock Assumptions" />
+            <KInput label="Current Stock Price"          value={currentPrice} onChange={setCurrentPrice} prefix="$" min={1} step={0.5} readOnly={offerMode} hint={offerMode ? "Set by recruiter" : ""} />
+            <KInput label="Assumption 1 — Annual Growth" value={growth1*100} onChange={v=>setGrowth1(v/100)} suffix="%" min={0} max={200} step={5} readOnly={offerMode} hint={offerMode ? "Set by recruiter" : ""} />
+            <KInput label="Assumption 2 — Annual Growth" value={growth2*100} onChange={v=>setGrowth2(v/100)} suffix="%" min={0} max={200} step={5} readOnly={offerMode} hint={offerMode ? "Set by recruiter" : ""} />
+            {/* Stock price table */}
+            <div style={{ background:B.mist, borderRadius:8, padding:"11px 12px", marginTop:14, border:`1px solid ${B.border}` }}>
+              <Label>Projected Stock Price</Label>
+              <table style={{ width:"100%", fontSize:11, borderCollapse:"collapse" }}>
+                <thead>
+                  <tr>{["","Assum. 1","Assum. 2"].map(h=>(
+                    <th key={h} style={{ textAlign:h===""?"left":"right", color:B.fog, fontWeight:700, paddingBottom:6, fontSize:10, textTransform:"uppercase", letterSpacing:"0.06em" }}>{h}</th>
+                  ))}</tr>
+                </thead>
+                <tbody>
+                  {[0,1,2,3].map(i=>(
+                    <tr key={i} style={{ borderTop:`1px solid ${B.border}` }}>
+                      <td style={{ color:B.slate, padding:"3px 0", fontFamily:"'Instrument Sans',sans-serif" }}>Yr {i+1}</td>
+                      <td style={{ textAlign:"right", fontFamily:"'IBM Plex Mono',monospace", color:B.charcoal, padding:"3px 0" }}>${p1[i].toFixed(2)}</td>
+                      <td style={{ textAlign:"right", fontFamily:"'IBM Plex Mono',monospace", color:B.charcoal, padding:"3px 0" }}>${p2[i].toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <Divider label="Benefits Coverage" />
+            <div style={{ marginBottom:8 }}>
+              <Label>Coverage Type</Label>
+              <div style={{ display:"flex", gap:6 }}>
+                {[["individual","Individual"],["family","Family"]].map(([val,lbl])=>(
+                  <button key={val} type="button" disabled={offerMode} onClick={() => !offerMode && setCoverageType(val)} style={{ flex:1, padding:"7px 0", border:`1.5px solid ${coverageType===val?B.charcoal:B.border}`, borderRadius:6, background:coverageType===val?B.charcoal:"#fff", color:coverageType===val?"#fff":B.slate, fontSize:11, fontWeight:700, fontFamily:"'Instrument Sans',sans-serif", cursor: offerMode ? "default" : "pointer", opacity: offerMode ? 0.9 : 1, transition:"all 0.15s" }}>
+                    {lbl}
+                  </button>
+                ))}
+              </div>
+              <div style={{ fontSize:10, color:B.fog, marginTop:4, lineHeight:1.45, fontFamily:"'Instrument Sans',sans-serif" }}>Affects HSA and benefits estimates</div>
+            </div>
+            {/* Benefits value summary */}
+            <div style={{ background:B.mist, borderRadius:8, padding:"11px 12px", marginTop:8, border:`1px solid ${B.border}` }}>
+              <Label>Est. Annual Benefits Value</Label>
+              <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:20, fontWeight:700, color:B.violet, marginBottom:6 }}>{fmtC(annualBenefits)}</div>
+              {[
+                ["401(k) Match", fmtC(bv.match401k)],
+                ["K-Flex LSA",   fmtC(1000)],
+                ["K-Pro Learn",  fmtC(2500)],
+                ["Commuter",     fmtC(3600)],
+                ["Protection",   fmtC(bv.protection)],
+              ].map(([l,v])=>(
+                <div key={l} style={{ display:"flex", justifyContent:"space-between", borderTop:`1px solid ${B.border}`, padding:"3px 0" }}>
+                  <span style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:10, color:B.slate }}>{l}</span>
+                  <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10, color:B.charcoal }}>{v}</span>
+                </div>
+              ))}
+              <div style={{ fontSize:9, color:B.fog, marginTop:6, lineHeight:1.4, fontFamily:"'Instrument Sans',sans-serif" }}>
+                Excludes medical premiums, ESPP, HSA ({fmtC(coverageType==="family"?2000:1000)} available w/ HDHP), and qualitative benefits
+              </div>
+            </div>
+          </aside>
+
+          {/* ── MAIN CONTENT ─────────────────────────────────────────────── */}
+          <main style={{ flex:1, minWidth:0 }}>
+
+            {/* ── PIE CHART SNAPSHOT ──────────────────────────────────────── */}
+            <div style={{ background:B.charcoal, borderRadius:10, padding:"22px 24px 18px", marginBottom:20 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18, flexWrap:"wrap", gap:12 }}>
+                <div>
+                  <div style={{ fontSize:14, fontWeight:800, color:"#fff", letterSpacing:"-0.02em" }}>Total Rewards Snapshot</div>
+                  <div style={{ fontSize:11, color:"rgba(255,255,255,0.35)", marginTop:2 }}>How your package is composed · {scenario==="flat"?"No appreciation":scenario==="g1"?`+${fmtPct(growth1)}/yr`:` +${fmtPct(growth2)}/yr`}</div>
+                </div>
+                <div style={{ display:"flex", flexWrap:"wrap", gap:"6px 14px" }}>
+                  {[
+                    ["Base Salary", PIE_COLORS.base],
+                    ["Equity", PIE_COLORS.equity],
+                    ["On-Target Bonus", PIE_COLORS.bonus],
+                    ["Sign-On", PIE_COLORS.signOn],
+                    ...(relo > 0 ? [["Relocation", PIE_COLORS.relo]] : []),
+                    ["Benefits", PIE_COLORS.benefits],
+                  ].map(([lbl, clr]) => (
+                    <div key={lbl} style={{ display:"flex", alignItems:"center", gap:5 }}>
+                      <div style={{ width:8, height:8, borderRadius:"50%", background:clr, flexShrink:0 }} />
+                      <span style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:10, color:"rgba(255,255,255,0.5)" }}>{lbl}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
+                {[
+                  { title:"Year 1 Breakdown", sub:`Total: ${fmtC(pieYear1.reduce((s,d)=>s+d.value,0))}`, data:pieYear1 },
+                  { title:"4-Year Average",   sub:`4-yr avg: ${fmtC(pieAvg.reduce((s,d)=>s+d.value,0))}`, data:pieAvg },
+                ].map(({ title, sub, data }) => (
+                  <div key={title}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:8 }}>
+                      <span style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:11, fontWeight:700, color:"rgba(255,255,255,0.55)", textTransform:"uppercase", letterSpacing:"0.08em" }}>{title}</span>
+                      <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:13, fontWeight:700, color:B.poppy }}>{sub}</span>
+                    </div>
+                    <div style={{ display:"flex", alignItems:"center", gap:16 }}>
+                      <PieChart width={140} height={140}>
+                        <Pie data={data} cx={65} cy={65} innerRadius={40} outerRadius={65} paddingAngle={2} dataKey="value" strokeWidth={0}>
+                          {data.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                        </Pie>
+                        <Tooltip
+                          formatter={(v, n) => [fmtC(v), n]}
+                          contentStyle={{ background:B.charcoal, border:`1px solid rgba(255,255,255,0.1)`, borderRadius:6, fontFamily:"'Instrument Sans',sans-serif", fontSize:11, color:"#fff" }}
+                          itemStyle={{ color:"rgba(255,255,255,0.8)" }}
+                        />
+                      </PieChart>
+                      <div style={{ flex:1, display:"flex", flexDirection:"column", gap:4 }}>
+                        {data.map(d => {
+                          const tot = data.reduce((s,x)=>s+x.value,0);
+                          const pct = tot > 0 ? Math.round((d.value/tot)*100) : 0;
+                          return (
+                            <div key={d.name} style={{ display:"flex", alignItems:"center", gap:6 }}>
+                              <div style={{ width:6, height:6, borderRadius:"50%", background:d.color, flexShrink:0 }} />
+                              <div style={{ flex:1, fontFamily:"'Instrument Sans',sans-serif", fontSize:10, color:"rgba(255,255,255,0.55)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{d.name}</div>
+                              <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10, color:"rgba(255,255,255,0.8)", whiteSpace:"nowrap" }}>{fmtC(d.value)}</div>
+                              <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9, color:"rgba(255,255,255,0.3)", width:28, textAlign:"right" }}>{pct}%</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* View tabs */}
+            <div style={{ display:"flex", gap:6, marginBottom:20 }}>
+              <button style={tabStyle("comp")}     onClick={()=>setActiveTab("comp")}>    💼 Compensation</button>
+              <button style={tabStyle("benefits")} onClick={()=>setActiveTab("benefits")}>🎁 Benefits & Perks</button>
+              <button style={tabStyle("total")}    onClick={()=>setActiveTab("total")}>   ⭐ Total Rewards</button>
+            </div>
+
+            {/* ── COMP TAB ─────────────────────────────────────────────── */}
+            {activeTab==="comp" && <>
+              <div style={{ display:"flex", gap:6, marginBottom:20 }}>
+                {[
+                  { key:"flat", label:"No Appreciation" },
+                  { key:"g1",   label:`+${fmtPct(growth1)}/yr · Assumption 1` },
+                  { key:"g2",   label:`+${fmtPct(growth2)}/yr · Assumption 2` },
+                ].map(s=>(
+                  <button key={s.key} onClick={()=>setScenario(s.key)} style={{
+                    flex:1, padding:"9px 8px", border:`1.5px solid ${scenario===s.key?B.charcoal:B.border}`,
+                    borderRadius:7, background:scenario===s.key?B.charcoal:"#fff",
+                    color:scenario===s.key?"#fff":B.slate,
+                    fontSize:11, fontWeight:700, fontFamily:"'Instrument Sans',sans-serif",
+                    cursor:"pointer", transition:"all 0.15s", letterSpacing:"0.03em",
+                  }}>
+                    {s.label}
+                    {scenario===s.key&&<span style={{ display:"inline-block", width:5, height:5, borderRadius:"50%", background:B.poppy, marginLeft:6, verticalAlign:"middle" }}/>}
+                  </button>
+                ))}
+              </div>
+
+              {/* Year cards */}
+              <div style={{ display:"flex", gap:10, marginBottom:20, flexWrap:"wrap" }}>
+                {years.map((y,i)=>(
+                  <YearCard key={y.yr} data={y} scenario={scenario} growth1={growth1} growth2={growth2} currentPrice={currentPrice} active={i===0} fmtC={fmtC} />
+                ))}
+              </div>
+
+              {/* Bar chart */}
+              <div style={{ background:"#fff", border:`1.5px solid ${B.border}`, borderRadius:10, padding:"20px 20px 10px", marginBottom:16 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16, flexWrap:"wrap", gap:10 }}>
+                  <div>
+                    <div style={{ fontSize:14, fontWeight:800, color:B.charcoal, letterSpacing:"-0.02em" }}>Annual Total Compensation</div>
+                    <div style={{ fontSize:11, color:B.fog, marginTop:2 }}>
+                      {scenario==="flat"?"No stock appreciation":scenario==="g1"?`Assumption 1 · stock +${fmtPct(growth1)}/yr`:`Assumption 2 · stock +${fmtPct(growth2)}/yr`}
+                    </div>
+                  </div>
+                  <div style={{ display:"flex", gap:14 }}>
+                    {[["Cash",B.border],["Equity (RSUs)",B.poppy],["Benefits",B.violet]].map(([lbl,bg])=>(
+                      <div key={lbl} style={{ display:"flex", alignItems:"center", gap:5 }}>
+                        <div style={{ width:10, height:10, borderRadius:2, background:bg, border:`1px solid ${B.border}` }} />
+                        <span style={{ fontSize:11, color:B.fog, fontFamily:"'Instrument Sans',sans-serif" }}>{lbl}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={barData} barCategoryGap="38%" margin={{ top:0, right:0, left:0, bottom:0 }}>
+                    <CartesianGrid vertical={false} stroke={B.border} />
+                    <XAxis dataKey="name" tick={{ fontSize:11, fill:B.fog, fontFamily:"'Instrument Sans',sans-serif" }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize:10, fill:B.fog, fontFamily:"'IBM Plex Mono',monospace" }}
+                      tickFormatter={v=>v>=1_000_000?`${sym}${(v/1_000_000).toFixed(1)}M`:`${sym}${(v/1000).toFixed(0)}K`}
+                      axisLine={false} tickLine={false} width={55} />
+                    <Tooltip content={makeTip} cursor={{ fill:"rgba(35,33,33,0.03)" }} />
+                    <Bar dataKey="Cash" stackId="a" fill={B.border} name="Cash" />
+                    <Bar dataKey="Equity (RSUs)" stackId="a" fill={B.poppy} name="Equity (RSUs)" />
+                    <Bar dataKey="Benefits" stackId="a" fill={B.violet} name="Benefits" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Detail table */}
+              <div style={{ background:"#fff", border:`1.5px solid ${B.border}`, borderRadius:10, padding:"20px", marginBottom:16 }}>
+                <div style={{ fontSize:14, fontWeight:800, color:B.charcoal, letterSpacing:"-0.02em", marginBottom:16 }}>Full Compensation Detail</div>
+                <div style={{ overflowX:"auto" }}>
+                  <table style={{ width:"100%", fontSize:12, borderCollapse:"collapse", minWidth:480 }}>
+                    <thead>
+                      <tr style={{ borderBottom:`2px solid ${B.border}` }}>
+                        <th style={{ textAlign:"left", padding:"0 12px 10px 0", color:B.fog, fontWeight:700, fontSize:10, textTransform:"uppercase", letterSpacing:"0.08em" }}></th>
+                        {["Year 1","Year 2","Year 3","Year 4"].map(h=>(
+                          <th key={h} style={{ textAlign:"right", padding:"0 0 10px", color:B.charcoal, fontWeight:800, fontSize:12, fontFamily:"'Instrument Sans',sans-serif" }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {tableRows.map((row,i)=>(
+                        <tr key={i} style={{ borderTop:row.sep?`2px solid ${B.border}`:`1px solid ${B.mist}`, background:row.hl?"rgba(249,99,83,0.04)":"transparent" }}>
+                          <td style={{ padding:"7px 12px 7px 0", color:row.bold?B.charcoal:B.slate, fontWeight:row.bold?700:400, fontSize:12, whiteSpace:"nowrap", fontFamily:"'Instrument Sans',sans-serif" }}>{row.label}</td>
+                          {row.vals.map((v,j)=>(
+                            <td key={j} style={{ textAlign:"right", padding:"7px 0", fontFamily:"'IBM Plex Mono',monospace", fontSize:12, color:row.hl?B.poppy:B.charcoal, fontWeight:row.bold?700:500, opacity:row.hl?1:row.bold?1:0.85 }}>{v}</td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Grant schedule */}
+              <div style={{ background:"#fff", border:`1.5px solid ${B.border}`, borderRadius:10, padding:"18px 20px", marginBottom:16 }}>
+                <div style={{ fontSize:13, fontWeight:800, color:B.charcoal, letterSpacing:"-0.01em", marginBottom:14 }}>Grant Schedule</div>
+                <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+                  {[
+                    { label:"New Hire Grant", sub:`${fmtDate(nhGrant)} first vest · ${Math.round(newHireGrant/currentPrice).toLocaleString()} RSUs`, value:fmtC(newHireGrant), accent:true },
+                    ...refreshGrants.filter(rg=>rg.value>0).map(rg=>({ label:rg.label, sub:`${fmtDate(rg.grantDate)} · ${Math.round(rg.value/currentPrice).toLocaleString()} RSUs`, value:fmtC(rg.value), accent:false })),
+                  ].map((g,i)=>(
+                    <div key={i} style={{ flex:"1 1 150px", background:B.mist, borderRadius:8, padding:"12px 14px", border:`1.5px solid ${g.accent?B.poppy:B.border}` }}>
+                      <div style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:9, fontWeight:800, textTransform:"uppercase", letterSpacing:"0.1em", color:g.accent?B.poppy:B.fog, marginBottom:5 }}>{g.label}</div>
+                      <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:15, fontWeight:700, color:B.charcoal }}>{g.value}</div>
+                      <div style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:10, color:B.fog, marginTop:3 }}>{g.sub}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>}
+
+            {/* ── BENEFITS TAB ──────────────────────────────────────────── */}
+            {activeTab==="benefits" && <>
+              {/* Benefits hero */}
+              <div style={{ background:B.charcoal, borderRadius:10, padding:"24px 28px", marginBottom:20, display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:16 }}>
+                <div>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+                    <div style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.12em", color:"rgba(255,255,255,0.35)" }}>Estimated Annual Benefits Value</div>
+                    <span style={{ fontSize:10, fontWeight:700, color:"rgba(255,255,255,0.25)", fontFamily:"'Instrument Sans',sans-serif" }}>· {REGIONS[region].flag} {REGIONS[region].label}</span>
+                  </div>
+                  <div style={{ fontSize:42, fontWeight:800, color:B.violet, fontFamily:"'IBM Plex Mono',monospace", letterSpacing:"-0.04em", lineHeight:1 }}>{fmtC(annualBenefits)}</div>
+                  <div style={{ fontSize:11, color:"rgba(255,255,255,0.3)", marginTop:5 }}>Quantifiable employer contributions · excludes medical premiums & qualitative benefits</div>
+                </div>
+                <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
+                  {[
+                    ["401(k) Match", fmtC(bv.match401k), B.lemon],
+                    ["K-Flex LSA",   fmtC(1000),          B.sky],
+                    ["K-Pro Learn",  fmtC(2500),          B.orange],
+                    ["Commuter",     fmtC(3600),          B.pink],
+                  ].map(([l,v,c])=>(
+                    <div key={l} style={{ background:"rgba(255,255,255,0.06)", borderRadius:8, padding:"10px 14px", textAlign:"center", minWidth:90 }}>
+                      <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:15, fontWeight:700, color:c }}>{v}</div>
+                      <div style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:10, color:"rgba(255,255,255,0.4)", marginTop:3 }}>{l}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Regional note banner for non-US */}
+              {regionalBenefits && (
+                <div style={{ background:`${B.orange}18`, border:`1.5px solid ${B.orange}40`, borderRadius:10, padding:"14px 18px", marginBottom:20, display:"flex", gap:10, alignItems:"flex-start" }}>
+                  <span style={{ fontSize:16, flexShrink:0 }}>{REGIONS[region].flag}</span>
+                  <div style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:12, color:B.slate, lineHeight:1.6 }}>
+                    <strong style={{ color:B.charcoal }}>{REGIONS[region].label} Benefits Note: </strong>
+                    {regionalBenefits.note}
+                  </div>
+                </div>
+              )}
+
+              {/* US: benefits at-a-glance from API (PDF or fallback JSON) */}
+              {!regionalBenefits && usBenefitsDoc?.sections?.length > 0 && (
+                <div style={{ background:"#fff", border:`1.5px solid ${B.border}`, borderRadius:10, padding:"18px 20px", marginBottom:16 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
+                    <span style={{ fontSize:14, fontWeight:800, color:B.charcoal }}>{usBenefitsDoc.title || "US benefits"}</span>
+                    <Badge color={B.sky}>{usBenefitsDoc.source === "pdf" ? "PDF" : "Reference"}</Badge>
+                  </div>
+                  {usBenefitsDoc.sections.map((s, i) => (
+                    <div key={i} style={{ marginBottom:12, fontFamily:"'Instrument Sans',sans-serif", fontSize:12, color:B.slate, lineHeight:1.55 }}>
+                      <div style={{ fontWeight:700, color:B.charcoal, marginBottom:4 }}>{s.heading}</div>
+                      <div>{s.body}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* US: full benefit categories */}
+              {!regionalBenefits && BENEFIT_CATEGORIES.map(cat=>(
+                <div key={cat.id} style={{ background:"#fff", border:`1.5px solid ${B.border}`, borderRadius:10, padding:"18px 20px", marginBottom:16 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:16 }}>
+                    <span style={{ fontSize:18 }}>{cat.icon}</span>
+                    <span style={{ fontSize:14, fontWeight:800, color:B.charcoal, letterSpacing:"-0.01em" }}>{cat.label}</span>
+                    <div style={{ flex:1, height:1, background:B.border }} />
+                    <Badge color={cat.color}>{cat.benefits.length} benefits</Badge>
+                  </div>
+                  <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(280px, 1fr))", gap:10 }}>
+                    {cat.benefits.map(b=>(
+                      <BenefitCard key={b.id} benefit={b} salary={salary} coverageType={coverageType} accentColor={cat.color} fmtC={fmtC} />
+                    ))}
+                  </div>
+                </div>
+              ))}
+
+              {/* Non-US: regional highlights */}
+              {regionalBenefits && (
+                <div style={{ background:"#fff", border:`1.5px solid ${B.border}`, borderRadius:10, padding:"18px 20px", marginBottom:16 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:16 }}>
+                    <span style={{ fontSize:18 }}>🌍</span>
+                    <span style={{ fontSize:14, fontWeight:800, color:B.charcoal, letterSpacing:"-0.01em" }}>Benefits Highlights — {REGIONS[region].label}</span>
+                  </div>
+                  <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(280px, 1fr))", gap:10 }}>
+                    {regionalBenefits.highlights.map((h,i)=>(
+                      <div key={i} style={{ background:B.mist, border:`1.5px solid ${B.border}`, borderRadius:8, padding:"14px 16px" }}>
+                        <div style={{ display:"flex", alignItems:"flex-start", gap:10, marginBottom:6 }}>
+                          <span style={{ fontSize:18 }}>{h.icon}</span>
+                          <div style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:12, fontWeight:700, color:B.charcoal, lineHeight:1.3 }}>{h.title}</div>
+                        </div>
+                        <div style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:11, color:B.slate, lineHeight:1.55 }}>{h.body}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Global programs always shown */}
+              <div style={{ background:"#fff", border:`1.5px solid ${B.border}`, borderRadius:10, padding:"18px 20px", marginBottom:16 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:16 }}>
+                  <span style={{ fontSize:18 }}>🌐</span>
+                  <span style={{ fontSize:14, fontWeight:800, color:B.charcoal, letterSpacing:"-0.01em" }}>Global Programs</span>
+                </div>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(260px, 1fr))", gap:10 }}>
+                  {[
+                    { icon:"🧠", label:"Modern Health",    desc:"8 therapy + 8 coaching sessions per year at no cost. Household members included. Available globally.", note:"~$2,400 retail value" },
+                    { icon:"📈", label:"ESPP",              desc:"Purchase Klaviyo stock at a 15% discount via payroll deductions. Invest in the company you're building.", note:"15% discount" },
+                    { icon:"🌍", label:"Global Sabbatical", desc:"4 weeks fully paid after 5 years of continuous service. Recharge and pursue passion projects.", note:"After 5 years" },
+                    { icon:"✨", label:"K-Flex LSA",        desc:"Lifestyle spending account for wellness, fitness, and personal growth.", note:fmtC(1000)+"/year" },
+                    { icon:"🎓", label:"K-Pro Learn",       desc:"Annual reimbursement for professional learning, certifications, and development.", note:fmtC(2500)+"/year" },
+                  ].map(g=>(
+                    <div key={g.label} style={{ background:B.mist, border:`1px solid ${B.border}`, borderRadius:8, padding:"12px 14px" }}>
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8, marginBottom:4 }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:7 }}>
+                          <span style={{ fontSize:15 }}>{g.icon}</span>
+                          <span style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:12, fontWeight:700, color:B.charcoal }}>{g.label}</span>
+                        </div>
+                        <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:11, fontWeight:700, color:B.poppy, whiteSpace:"nowrap" }}>{g.note}</span>
+                      </div>
+                      <div style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:11, color:B.slate, lineHeight:1.5 }}>{g.desc}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>}
+
+            {/* ── TOTAL REWARDS TAB ────────────────────────────────────── */}
+            {activeTab==="total" && <>
+              {/* Big number */}
+              <div style={{ background:B.charcoal, borderRadius:10, padding:"28px 32px", marginBottom:20, textAlign:"center" }}>
+                <div style={{ fontSize:11, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.14em", color:"rgba(255,255,255,0.3)", marginBottom:8 }}>4-Year Total Rewards Value</div>
+                <div style={{ fontSize:56, fontWeight:800, color:B.lemon, fontFamily:"'IBM Plex Mono',monospace", letterSpacing:"-0.05em", lineHeight:1 }}>{fmtC(total4WithBenefits)}</div>
+                <div style={{ fontSize:12, color:"rgba(255,255,255,0.3)", marginTop:8 }}>
+                  Cash + Equity + Estimated Benefits · {scenario==="flat"?"No appreciation":scenario==="g1"?`+${fmtPct(growth1)}/yr`:`+${fmtPct(growth2)}/yr`}
+                </div>
+              </div>
+
+              {/* Breakdown cards */}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14, marginBottom:20 }}>
+                {[
+                  { label:"4-Year Cash",     value:years.reduce((s,y)=>s+y.salary+y.bonus+y.sOn,0), color:B.charcoal, sub:"Salary + Bonus + Sign-On" },
+                  { label:"4-Year Equity",   value:years.reduce((s,y)=>s+y[eqKey],0),               color:B.poppy,    sub:scenario==="flat"?"No appreciation":scenario==="g1"?`+${fmtPct(growth1)}/yr`:`+${fmtPct(growth2)}/yr` },
+                  { label:"4-Year Benefits", value:annualBenefits*4,                                  color:B.violet,   sub:"Est. quantifiable value" },
+                ].map(c=>(
+                  <div key={c.label} style={{ background:"#fff", border:`1.5px solid ${B.border}`, borderRadius:10, padding:"20px", textAlign:"center" }}>
+                    <div style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.1em", color:B.fog, marginBottom:8 }}>{c.label}</div>
+                    <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:28, fontWeight:800, color:c.color, letterSpacing:"-0.04em", lineHeight:1 }}>{fmtC(c.value)}</div>
+                    <div style={{ fontSize:10, color:B.fog, marginTop:6, fontFamily:"'Instrument Sans',sans-serif" }}>{c.sub}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Year-by-year total rewards table */}
+              <div style={{ background:"#fff", border:`1.5px solid ${B.border}`, borderRadius:10, padding:"20px", marginBottom:16 }}>
+                <div style={{ fontSize:14, fontWeight:800, color:B.charcoal, letterSpacing:"-0.02em", marginBottom:16 }}>Year-by-Year Total Rewards</div>
+                <div style={{ overflowX:"auto" }}>
+                  <table style={{ width:"100%", fontSize:12, borderCollapse:"collapse", minWidth:480 }}>
+                    <thead>
+                      <tr style={{ borderBottom:`2px solid ${B.border}` }}>
+                        <th style={{ textAlign:"left", padding:"0 12px 10px 0", color:B.fog, fontWeight:700, fontSize:10, textTransform:"uppercase", letterSpacing:"0.08em" }}></th>
+                        {["Year 1","Year 2","Year 3","Year 4"].map(h=>(
+                          <th key={h} style={{ textAlign:"right", padding:"0 0 10px", color:B.charcoal, fontWeight:800, fontSize:12 }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[
+                        { label:"Base Salary",       vals:years.map(y=>fmtC(y.salary)),             color:B.charcoal },
+                        { label:"Bonus + Sign-On",   vals:years.map(y=>fmtC(y.bonus+y.sOn)),        color:B.charcoal },
+                        { label:"Equity (RSUs)",     vals:years.map(y=>fmtC(y[eqKey])),             color:B.poppy, bold:true },
+                        { label:"Est. Benefits Value", vals:years.map(()=>fmtC(annualBenefits)),    color:B.violet },
+                      ].map((row,i)=>(
+                        <tr key={i} style={{ borderTop:`1px solid ${B.mist}` }}>
+                          <td style={{ padding:"7px 12px 7px 0", color:row.bold?B.charcoal:B.slate, fontWeight:row.bold?700:400, fontSize:12, whiteSpace:"nowrap", fontFamily:"'Instrument Sans',sans-serif" }}>{row.label}</td>
+                          {row.vals.map((v,j)=>(
+                            <td key={j} style={{ textAlign:"right", padding:"7px 0", fontFamily:"'IBM Plex Mono',monospace", fontSize:12, color:row.color, fontWeight:row.bold?700:500 }}>{v}</td>
+                          ))}
+                        </tr>
+                      ))}
+                      <tr style={{ borderTop:`2px solid ${B.border}`, background:B.charcoal }}>
+                        <td style={{ padding:"10px 12px 10px 0", color:B.cotton, fontWeight:800, fontSize:12, fontFamily:"'Instrument Sans',sans-serif" }}>Total Rewards</td>
+                        {years.map((y,j)=>(
+                          <td key={j} style={{ textAlign:"right", padding:"10px 0", fontFamily:"'IBM Plex Mono',monospace", fontSize:13, color:B.lemon, fontWeight:800 }}>
+                            {fmtC(y[tdcKey]+annualBenefits)}
+                          </td>
+                        ))}
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* What makes Klaviyo different */}
+              <div style={{ background:"#fff", border:`1.5px solid ${B.border}`, borderRadius:10, padding:"20px", marginBottom:16 }}>
+                <div style={{ fontSize:14, fontWeight:800, color:B.charcoal, marginBottom:16 }}>What Makes Klaviyo Different</div>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(240px, 1fr))", gap:12 }}>
+                  {[
+                    { icon:"🏦", title:"401(k) — 100% Vested Day 1",         body:"4% employer match with immediate 100% vesting. Your retirement savings are yours from day one." },
+                    { icon:"👶", title:"Industry-Leading Parental Leave",     body:"22 weeks fully paid for birthing parents. 16 weeks for non-birthing parents." },
+                    { icon:"🌍", title:"Global Sabbatical",                   body:"4 weeks fully paid after 5 years. Recharge, explore, pursue passion projects." },
+                    { icon:"📈", title:"ESPP — 15% Discount",                body:"Buy Klaviyo stock at a 15% discount via payroll deductions. Invest in the company you're building." },
+                    { icon:"🧠", title:"Modern Health — Free Therapy",        body:"8 therapy + 8 coaching sessions per year at no cost. Household members included." },
+                    { icon:"🎓", title:fmtC(2500)+" Learning Budget",         body:"Annual K-Pro Learn stipend to invest in skills, certifications, and courses." },
+                  ].map(c=>(
+                    <div key={c.title} style={{ background:B.mist, borderRadius:8, padding:"14px 16px", border:`1px solid ${B.border}` }}>
+                      <div style={{ fontSize:20, marginBottom:8 }}>{c.icon}</div>
+                      <div style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:12, fontWeight:700, color:B.charcoal, marginBottom:4 }}>{c.title}</div>
+                      <div style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:11, color:B.slate, lineHeight:1.5 }}>{c.body}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>}
+
+          </main>
+        </div>
+
+        <footer
+          role="contentinfo"
+          aria-label="Legal disclaimer"
+          style={{
+            maxWidth: 1300,
+            margin: "0 auto",
+            padding: "24px 28px 40px",
+            borderTop: `1px solid ${B.border}`,
+            background: B.cotton,
+          }}
+        >
+          <div
+            style={{
+              fontFamily: "'Instrument Sans',sans-serif",
+              fontSize: 11,
+              lineHeight: 1.65,
+              color: "#C41E3A",
+              fontWeight: 500,
+              whiteSpace: "pre-line",
+            }}
+          >
+            {LEGAL_DISCLAIMER}
+          </div>
+        </footer>
+      </div>
+    </>
+  );
+}

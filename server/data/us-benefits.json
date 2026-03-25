@@ -1,0 +1,15 @@
+{
+  "title": "Klaviyo US benefits (summary)",
+  "source": "fallback",
+  "sections": [
+    {
+      "heading": "Using live benefits data",
+      "body": "Add the PDF file `2026 Klaviyo US Benefits At-a-Glance (1).pdf` under the project `Source/` folder. The API will extract text automatically. Until then, this placeholder reflects that US benefits power the model’s qualitative copy in the app."
+    },
+    {
+      "heading": "Highlights",
+      "body": "Medical, dental, and vision plans; 401(k) with employer match; ESPP; flexible PTO; parental leave; Modern Health; K-Flex LSA; K-Pro Learn; commuter benefits; and more. See internal Total Rewards materials for authoritative details."
+    }
+  ],
+  "rawText": ""
+}

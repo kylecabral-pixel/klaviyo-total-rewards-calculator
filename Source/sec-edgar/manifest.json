@@ -1,0 +1,7 @@
+{
+  "sourceUrl": "https://www.sec.gov/Archives/edgar/data/1835830/000162828023031916/exhibit103-sx1a.htm",
+  "description": "SEC EDGAR Exhibit 10.3 (S-1/A related filing, accession 000162828023031916), Klaviyo, Inc. CIK 1835830",
+  "localFile": "exhibit103-sx1a-000162828023031916.htm",
+  "retrievedAt": "2026-03-25T00:00:00.000Z",
+  "notes": "Re-fetch with curl using a User-Agent that identifies your app and includes contact info, per https://www.sec.gov/os/accessing-edgar-data"
+}

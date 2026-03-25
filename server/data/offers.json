@@ -1,0 +1,22 @@
+{
+  "offers": {
+    "00000000-0000-4000-8000-000000000001": {
+      "token": "klaviyo-hackathon-demo-offer-token",
+      "updatedAt": "2026-03-25T18:00:00.000Z",
+      "name": "Kyle Cabral",
+      "role": "Director of Software Engineering — L5",
+      "startDate": "2026-04-01",
+      "region": "US",
+      "coverageType": "individual",
+      "salary": 305000,
+      "bonusPct": 0.2,
+      "signOn": 10000,
+      "relo": 0,
+      "newHireGrant": 750000,
+      "annualRefresh": 250000,
+      "currentPrice": 25,
+      "growth1": 0.1,
+      "growth2": 0.15
+    }
+  }
+}
