@@ -66,14 +66,12 @@ export function buildCompensationLookup() {
   const tier1Pilot = {}
 
   let mode = null
-  let expectHeader = false
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i].map(normCell)
 
     if (row[1]?.includes('TIER 2')) {
       mode = 'tier2_header'
-      expectHeader = true
       continue
     }
     if (row[1]?.includes('Pilot R&D Equity Ranges')) {
@@ -83,13 +81,11 @@ export function buildCompensationLookup() {
 
     if (row[1]?.includes('TIER 1 - US')) {
       mode = 'tier1_header'
-      expectHeader = true
       continue
     }
     if (mode === 'tier1_header' || mode === 'tier2_header') {
       if (row[3] === 'Eng' && row[4] === 'ML') {
         mode = mode === 'tier1_header' ? 'tier1_rows' : 'tier2_rows'
-        expectHeader = false
         continue
       }
       continue

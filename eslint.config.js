@@ -7,7 +7,18 @@ import { defineConfig, globalIgnores } from 'eslint/config'
 export default defineConfig([
   globalIgnores(['dist']),
   {
+    files: ['server/**/*.js', 'api/**/*.js'],
+    extends: [js.configs.recommended],
+    languageOptions: {
+      globals: globals.node,
+    },
+    rules: {
+      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+    },
+  },
+  {
     files: ['**/*.{js,jsx}'],
+    ignores: ['server/**', 'api/**'],
     extends: [
       js.configs.recommended,
       reactHooks.configs.flat.recommended,

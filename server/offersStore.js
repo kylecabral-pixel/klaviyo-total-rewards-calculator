@@ -2,6 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import crypto from 'crypto'
+import { toPublicOffer } from './lib/offerPublic.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const FILE = path.join(__dirname, 'data', 'offers.json')
@@ -21,6 +22,11 @@ const ALLOWED_PATCH_KEYS = [
   'currentPrice',
   'growth1',
   'growth2',
+  'showSignOn',
+  'showRelocation',
+  'greenhouseApplicationId',
+  'signOnSource',
+  'reloSource',
 ]
 
 function defaultOfferFields() {
@@ -48,9 +54,19 @@ export function readOffersDb() {
 }
 
 export function writeOffersDb(db) {
-  const tmp = `${FILE}.tmp`
-  fs.writeFileSync(tmp, `${JSON.stringify(db, null, 2)}\n`, 'utf8')
-  fs.renameSync(tmp, FILE)
+  try {
+    const tmp = `${FILE}.tmp`
+    fs.writeFileSync(tmp, `${JSON.stringify(db, null, 2)}\n`, 'utf8')
+    fs.renameSync(tmp, FILE)
+  } catch (err) {
+    const e = /** @type {NodeJS.ErrnoException} */ (err)
+    if (e.code === 'EROFS' || e.code === 'EPERM' || e.code === 'ENOTSUP') {
+      throw new Error(
+        'Offer storage is read-only on this host (e.g. Vercel). Recruiter create/update and Greenhouse upsert need a database or local API.',
+      )
+    }
+    throw err
+  }
 }
 
 export function findOfferByToken(token) {
@@ -70,22 +86,7 @@ export function getOfferRow(offerId) {
   return { offerId, ...row }
 }
 
-/** Public payload for candidate UI (no token). */
-export function toPublicOffer(row) {
-  if (!row) return null
-  const {
-    token: _t,
-    offerId,
-    updatedAt,
-    ...rest
-  } = row
-  return {
-    ok: true,
-    offerId,
-    updatedAt,
-    ...rest,
-  }
-}
+export { toPublicOffer }
 
 export function pickOfferFields(obj) {
   if (!obj || typeof obj !== 'object') return {}
@@ -127,4 +128,19 @@ export function updateOffer(offerId, patch) {
   db.offers[offerId] = next
   writeOffersDb(db)
   return { offerId, ...next }
+}
+
+/**
+ * Create or update offer keyed by Greenhouse application id (webhook / Harvest sync).
+ */
+export function upsertOfferByGreenhouseApplicationId(applicationId, patch) {
+  if (!applicationId) return null
+  const db = readOffersDb()
+  if (!db.offers) db.offers = {}
+  for (const [offerId, row] of Object.entries(db.offers)) {
+    if (String(row.greenhouseApplicationId || '') === String(applicationId)) {
+      return updateOffer(offerId, { ...patch, greenhouseApplicationId: applicationId })
+    }
+  }
+  return createOffer({ ...patch, greenhouseApplicationId: applicationId })
 }

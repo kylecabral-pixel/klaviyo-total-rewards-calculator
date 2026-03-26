@@ -32,7 +32,7 @@ All compensation components—base salary, bonus, and equity—are subject to ch
 Candidates should not rely solely on this tool for making compensation decisions. Final compensation details, including base salary, equity awards, and bonus eligibility, will be outlined in a formal offer letter or applicable agreement, if extended.`;
 
 const GOOGLE_FONT = `
-@import url('https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Instrument+Sans:wght@400;500;600;700;800&family=Instrument+Serif:ital,wght@0,400;0,500;0,600&display=swap');
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { background: ${B.cotton}; }
 input[type=range] { -webkit-appearance: none; appearance: none; }
@@ -117,8 +117,6 @@ const fmt$ = (v) => fmtMoney(v, "$");
 const fmtPct   = (v) => `${(v * 100).toFixed(0)}%`;
 const fmtDate  = (d) => d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
 const addMonths = (d, m) => { const r = new Date(d); r.setMonth(r.getMonth() + m); return r; };
-const addDays   = (d, n) => new Date(d.getTime() + n * 86400000);
-
 /* ─── Vesting logic ─────────────────────────────────────────────────────────── */
 function grantDateToVestStart(grantDate) {
   const yr = grantDate.getFullYear();
@@ -130,9 +128,10 @@ function grantDateToVestStart(grantDate) {
   for (const cp of checkpoints) if (grantDate <= cp) return cp;
   return checkpoints[4];
 }
+/** 12-mo cliff, then 25% + quarterly over 12 quarters (matches Wealth Creation Model template). */
 function computeNewHireVesting(units, grantDate) {
   const firstVest = grantDateToVestStart(grantDate);
-  const cliff     = addMonths(firstVest, 9);
+  const cliff     = addMonths(firstVest, 12);
   const vbd       = {};
   vbd[cliff.toISOString()] = units / 4;
   for (let i = 1; i <= 12; i++) {
@@ -141,19 +140,49 @@ function computeNewHireVesting(units, grantDate) {
   }
   return vbd;
 }
+
+/** First May 15 on or after grant — refresh RSUs vest on a May-anchored schedule (not Feb/May/Aug/Nov from hire). */
+function refreshGrantFirstVestDate(grantDate) {
+  const y = grantDate.getFullYear();
+  const mayThis = new Date(y, 4, 15);
+  if (grantDate <= mayThis) return mayThis;
+  return new Date(y + 1, 4, 15);
+}
+
+/** Same 12-mo cliff + 25% + quarterly /16 as new hire, but first checkpoint = next May 15 (see `refreshGrantFirstVestDate`). */
 function computeRefreshVesting(units, grantDate) {
-  const vbd   = {};
-  const twoYr = addMonths(grantDate, 24);
-  const triYr = addMonths(grantDate, 36);
-  const start = grantDateToVestStart(grantDate);
-  for (let i = 0; i < 20; i++) {
-    const d = addMonths(start, i * 3);
-    if (d > triYr) continue;
-    if (d > twoYr) vbd[d.toISOString()] = (vbd[d.toISOString()] || 0) + units / 8;
-    else if (d > grantDate) vbd[d.toISOString()] = (vbd[d.toISOString()] || 0) + units / 16;
+  const firstVest = refreshGrantFirstVestDate(grantDate);
+  const cliff = addMonths(firstVest, 12);
+  const vbd = {};
+  vbd[cliff.toISOString()] = units / 4;
+  for (let i = 1; i <= 12; i++) {
+    const d = addMonths(cliff, i * 3);
+    vbd[d.toISOString()] = (vbd[d.toISOString()] || 0) + units / 16;
   }
   return vbd;
 }
+
+/** Jun–May equity years (UTC) — matches Wealth Creation Model date headers; avoids local TZ shifting May 31. */
+function endOfMayUtc(year) {
+  return new Date(Date.UTC(year, 4, 31, 23, 59, 59, 999));
+}
+function startOfJuneUtc(year) {
+  return new Date(Date.UTC(year, 5, 1, 0, 0, 0, 0));
+}
+
+/** Four Jun–May windows; year 1 ends May of the calendar year of the first cliff vest. */
+function equityYearWindows(startDate) {
+  const nhGrant = grantDateToVestStart(startDate);
+  const cliffDate = addMonths(nhGrant, 12);
+  const cliffY = cliffDate.getUTCFullYear();
+  return [
+    { start: new Date(0), end: endOfMayUtc(cliffY) },
+    { start: startOfJuneUtc(cliffY), end: endOfMayUtc(cliffY + 1) },
+    { start: startOfJuneUtc(cliffY + 1), end: endOfMayUtc(cliffY + 2) },
+    { start: startOfJuneUtc(cliffY + 2), end: endOfMayUtc(cliffY + 3) },
+  ];
+}
+
 function unitsInWindow(vbd, start, end) {
   let t = 0;
   for (const [ds, u] of Object.entries(vbd)) {
@@ -163,6 +192,7 @@ function unitsInWindow(vbd, start, end) {
   return t;
 }
 
+/** Vesting years = Jun–May; NH cliff = 12 mo from NH grant checkpoint; refresh = May-15 first checkpoint then same cliff/quarterly as NH (no synthetic tranche-to-year mapping). */
 function computeModel({ startDate, salary, bonusPct, newHireGrant, annualRefresh, currentPrice, growth1, growth2, signOn }) {
   const oct2026  = new Date(2026, 9, 1);
   const mar2027  = new Date(2027, 2, 1);
@@ -180,23 +210,51 @@ function computeModel({ startDate, salary, bonusPct, newHireGrant, annualRefresh
   const p1 = [1,2,3,4].map(yr => currentPrice * Math.pow(1+growth1, yr));
   const p2 = [1,2,3,4].map(yr => currentPrice * Math.pow(1+growth2, yr));
   const nhV = computeNewHireVesting(nhUnits, nhGrant);
-  const rfV = refreshGrants.map(rg => ({ ...rg, units: rg.value / currentPrice, vbd: computeRefreshVesting(rg.value / currentPrice, rg.grantDate) }));
-  const yrEnd = [1,2,3,4].map(yr => addDays(nhGrant, 365 * yr));
+  const eqWin = equityYearWindows(startDate);
+  const rfV = refreshGrants.map((rg) => {
+    const units = rg.value / currentPrice;
+    return { ...rg, units, vbd: rg.value > 0 ? computeRefreshVesting(units, rg.grantDate) : {} };
+  });
   const years = [1,2,3,4].map(yr => {
-    const start = yr === 1 ? new Date(0) : yrEnd[yr-2];
-    const end   = yrEnd[yr-1];
-    const nhU   = unitsInWindow(nhV, start, end);
-    const rfU   = rfV.reduce((s, rv) => s + unitsInWindow(rv.vbd, start, end), 0);
+    const wi = yr - 1;
+    const { start, end } = eqWin[wi];
+    const nhU = unitsInWindow(nhV, start, end);
+    const rfU = rfV.reduce((s, rv) => s + unitsInWindow(rv.vbd, start, end), 0);
     const total = nhU + rfU;
-    const eqF   = total * currentPrice;
-    const eqG1  = total * p1[yr-1];
-    const eqG2  = total * p2[yr-1];
+    const px1 = p1[yr - 1];
+    const px2 = p2[yr - 1];
+    const eqF_nh = nhU * currentPrice;
+    const eqF_rf = rfU * currentPrice;
+    const eqG1_nh = nhU * px1;
+    const eqG1_rf = rfU * px1;
+    const eqG2_nh = nhU * px2;
+    const eqG2_rf = rfU * px2;
+    const eqF = eqF_nh + eqF_rf;
+    const eqG1 = eqG1_nh + eqG1_rf;
+    const eqG2 = eqG2_nh + eqG2_rf;
     const bonus = startDate >= oct2026 ? 0
       : yr === 1 ? Math.max(0, (new Date(2027,0,1)-startDate)/(365*86400000)) * bonusPct * salary
       : bonusPct * salary;
     const sOn = yr===1 && startDate >= new Date(2026,0,1) ? signOn : 0;
-    return { yr, total, eqF, eqG1, eqG2, salary, bonus, sOn,
-      tdcF: salary+eqF+bonus+sOn, tdcG1: salary+eqG1+bonus+sOn, tdcG2: salary+eqG2+bonus+sOn };
+    return {
+      yr,
+      total,
+      eqF,
+      eqG1,
+      eqG2,
+      eqF_nh,
+      eqF_rf,
+      eqG1_nh,
+      eqG1_rf,
+      eqG2_nh,
+      eqG2_rf,
+      salary,
+      bonus,
+      sOn,
+      tdcF: salary + eqF + bonus + sOn,
+      tdcG1: salary + eqG1 + bonus + sOn,
+      tdcG2: salary + eqG2 + bonus + sOn,
+    };
   });
   return { years, p1, p2, nhGrant, refreshGrants };
 }
@@ -246,7 +304,7 @@ const BENEFIT_CATEGORIES = [
       { id: "fpto",       label: "Flexible PTO",      desc: "Unlimited flexible PTO. Klaviyo encourages 4+ weeks per year.", value: null, note: "Unlimited" },
       { id: "holidays",   label: "Paid Holidays",     desc: "11 paid holidays + 2 Recharge Days annually.", value: null, note: "13 days/year" },
       { id: "parental",   label: "Parental Leave",    desc: "22 weeks fully paid for birthing parents. 16 weeks for non-birthing parents.", value: null, note: "Up to 22 weeks paid" },
-      { id: "sabbatical", label: "Global Sabbatical", desc: "4 weeks of fully paid sabbatical after 5 years of continuous service.", dynamic: (s) => (s / 52) * 4, note: "After 5 years" },
+      { id: "sabbatical", label: "Global Sabbatical", desc: "4 weeks of fully paid sabbatical after 5 years of continuous service.", value: null, note: "After 5 years · not included in estimated annual value (year 5+)" },
     ],
   },
   {
@@ -323,6 +381,7 @@ function computeBenefitsValue(salary, coverageType, e = DEFAULT_BENEFIT_ELECTION
   const lsa = e.lsa ? 1000 : 0;
   const kpro = e.kpro ? 2500 : 0;
   const commuter = e.commuter ? 3600 : 0;
+  /** Global Sabbatical is intentionally omitted (eligibility year 5+; not an annual run-rate). */
   const quantifiable =
     medicalSubsidy +
     dentalSubsidy +
@@ -365,37 +424,6 @@ function computeBenefitsValue(salary, coverageType, e = DEFAULT_BENEFIT_ELECTION
   };
 }
 
-function benefitWaived(benefitId, e) {
-  switch (benefitId) {
-    case "401k":
-      return !e.retirement401kParticipate || e.retirementDeferral === "none";
-    case "espp":
-      return !e.esppParticipate;
-    case "hsa":
-      return e.medicalPlan !== "hdhp" || !e.hsaTakeEmployerContribution;
-    case "medical":
-      return e.medicalPlan === "waive";
-    case "dental":
-      return !e.enrollDental;
-    case "vision":
-      return !e.enrollVision;
-    case "mhealth":
-      return !e.modernHealth;
-    case "life":
-    case "std":
-    case "ltd":
-      return !e.coreInsurance;
-    case "lsa":
-      return !e.lsa;
-    case "kpro":
-      return !e.kpro;
-    case "commuter":
-      return !e.commuter;
-    default:
-      return false;
-  }
-}
-
 /* ─── Shared UI primitives ──────────────────────────────────────────────────── */
 const Label = ({ children, light }) => (
   <div style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:10, fontWeight:700, letterSpacing:"0.1em", textTransform:"uppercase", color:light?"rgba(255,255,255,0.45)":B.fog, marginBottom:5 }}>
@@ -433,11 +461,50 @@ const Divider = ({ label }) => (
   </div>
 );
 
-const FlagMark = ({ size=20, color="#fff" }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-    <rect x="3" y="2" width="3.5" height="20" rx="1.75" fill={color}/>
-    <path d="M6.5 4L19 9.5L6.5 15.5V4Z" fill={color}/>
-  </svg>
+/**
+ * Wordmark + swallowtail flag on the “o” (Klaviyo primary logo treatment).
+ * Serif: Instrument Serif as open high-contrast stand-in for brand serif; swap if marketing provides a font file.
+ */
+const KlaviyoWordmark = ({ color = "#fff", fontSize = 19 }) => (
+  <span
+    role="img"
+    aria-label="Klaviyo"
+    style={{
+      display: "inline-flex",
+      alignItems: "baseline",
+      color,
+      fontFamily: "'Instrument Serif', Georgia, 'Times New Roman', serif",
+      fontSize,
+      fontWeight: 500,
+      letterSpacing: "-0.03em",
+      lineHeight: 1,
+      textTransform: "lowercase",
+    }}
+  >
+    klaviy
+    <span style={{ position: "relative", display: "inline-block" }}>
+      o
+      <svg
+        aria-hidden
+        viewBox="0 0 12 8"
+        fill="none"
+        style={{
+          position: "absolute",
+          left: "72%",
+          bottom: "0.68em",
+          width: "0.58em",
+          height: "0.36em",
+          display: "block",
+        }}
+      >
+        {/* Horizontal flag, swallowtail / V point on the right */}
+        <path
+          fill={color}
+          d="M0 1.25h7.35L11.25 4 7.35 6.75H0V1.25z"
+        />
+      </svg>
+    </span>
+  </span>
 );
 
 const Badge = ({ children, color }) => (
@@ -448,27 +515,36 @@ const Badge = ({ children, color }) => (
 
 /* ─── Year card ─────────────────────────────────────────────────────────────── */
 const YearCard = ({ data, scenario, growth1, growth2, currentPrice, active, fmtC = fmt$ }) => {
-  const eq  = scenario==="flat"?data.eqF:scenario==="g1"?data.eqG1:data.eqG2;
+  const eqNh = scenario==="flat"?data.eqF_nh:scenario==="g1"?data.eqG1_nh:data.eqG2_nh;
+  const eqRf = scenario==="flat"?data.eqF_rf:scenario==="g1"?data.eqG1_rf:data.eqG2_rf;
+  const eq  = eqNh + eqRf;
   const tdc = scenario==="flat"?data.tdcF:scenario==="g1"?data.tdcG1:data.tdcG2;
   const px  = scenario==="flat"?currentPrice:scenario==="g1"?currentPrice*Math.pow(1+growth1,data.yr):currentPrice*Math.pow(1+growth2,data.yr);
   const eqShare = tdc>0?Math.min(1,eq/tdc):0;
+  const rows = [
+    { l:"Salary", v:fmtC(data.salary), hi:false },
+    { l:"Bonus",  v:fmtC(data.bonus),  hi:false, dim:!data.bonus },
+    ...(data.sOn?[{ l:"Sign-On", v:fmtC(data.sOn), hi:true, valColor:B.poppy }]:[]),
+    { l:"NH Grant", v:fmtC(eqNh), hi:true, valColor:B.poppy },
+    { l:"Refresh", v:fmtC(eqRf), hi:true, valColor:B.eggplant, dim:!eqRf },
+  ];
   return (
     <div style={{ flex:"1 1 148px", minWidth:140, background:active?B.charcoal:"#fff", border:`1.5px solid ${active?B.charcoal:B.border}`, borderRadius:10, padding:"16px 15px 14px", position:"relative", overflow:"hidden", transition:"all 0.2s" }}>
       <div style={{ position:"absolute", top:0, left:0, right:0, height:3, background:active?B.poppy:B.border }} />
       <div style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:10, fontWeight:800, color:active?"rgba(255,255,255,0.4)":B.fog, textTransform:"uppercase", letterSpacing:"0.12em", marginBottom:11, marginTop:4 }}>Year {data.yr}</div>
-      {[
-        { l:"Salary", v:fmtC(data.salary), hi:false },
-        { l:"Bonus",  v:fmtC(data.bonus),  hi:false, dim:!data.bonus },
-        ...(data.sOn?[{ l:"Sign-On", v:fmtC(data.sOn), hi:true }]:[]),
-        { l:"Equity", v:fmtC(eq), hi:true },
-      ].map(r=>(
+      {rows.map(r=>(
         <div key={r.l} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
           <span style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:11, color:active?(r.dim?"rgba(255,255,255,0.2)":"rgba(255,255,255,0.55)"):(r.dim?B.fog:B.slate) }}>{r.l}</span>
-          <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:11, fontWeight:600, color:r.hi?B.poppy:active?"rgba(255,255,255,0.8)":B.charcoal }}>{r.v}</span>
+          <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:11, fontWeight:600, color:r.hi?(r.valColor||B.poppy):active?"rgba(255,255,255,0.8)":B.charcoal }}>{r.v}</span>
         </div>
       ))}
-      <div style={{ height:2, background:active?"rgba(255,255,255,0.1)":B.border, borderRadius:1, margin:"10px 0" }}>
-        <div style={{ height:"100%", width:`${eqShare*100}%`, background:B.poppy, borderRadius:1, transition:"width 0.5s ease" }} />
+      <div style={{ height:2, background:active?"rgba(255,255,255,0.1)":B.border, borderRadius:1, margin:"10px 0", display:"flex", overflow:"hidden", transition:"all 0.5s ease" }}>
+        {eqShare > 0 && (
+          <>
+            {eqNh > 0 && <div style={{ flexGrow: eqNh, flexBasis: 0, minWidth: 1, height:"100%", background: B.poppy }} />}
+            {eqRf > 0 && <div style={{ flexGrow: eqRf, flexBasis: 0, minWidth: 1, height:"100%", background: B.eggplant }} />}
+          </>
+        )}
       </div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
         <span style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em", color:active?"rgba(255,255,255,0.35)":B.fog }}>Total</span>
@@ -521,155 +597,46 @@ const BenefitCard = ({ benefit, salary, coverageType, accentColor, fmtC = fmt$ }
   );
 };
 
-function readOfferTokenFromUrl() {
-  try {
-    const t = new URLSearchParams(window.location.search).get("offer");
-    return t && t.trim() ? t.trim() : null;
-  } catch {
-    return null;
-  }
-}
-
-/** URL `?offer=` wins; in dev, `VITE_DEFAULT_OFFER_TOKEN` loads a demo offer without pasting the link. */
-function readInitialOfferToken() {
-  const fromUrl = readOfferTokenFromUrl();
-  if (fromUrl) return fromUrl;
-  if (import.meta.env.DEV) {
-    const fromEnv = import.meta.env.VITE_DEFAULT_OFFER_TOKEN;
-    if (fromEnv && String(fromEnv).trim()) return String(fromEnv).trim();
-  }
-  return null;
-}
+/** Default scenario inputs (edit here or in the sidebar). No offer API. */
+const DEFAULT_INPUTS = {
+  name: "Kyle Cabral",
+  role: "Director of Software Engineering — L5",
+  startDate: "2026-04-01",
+  salary: 305000,
+  bonusPct: 0.2,
+  signOn: 10000,
+  newHireGrant: 750000,
+  annualRefresh: 250000,
+  relo: 0,
+};
 
 /* ─── Main component ────────────────────────────────────────────────────────── */
 export default function KlaviyoWealthModel() {
-  const [offerToken] = useState(readInitialOfferToken);
-  const [offerLoadStatus, setOfferLoadStatus] = useState(() =>
-    readInitialOfferToken() ? "loading" : "legacy",
-  );
-  const [offerLoadError, setOfferLoadError] = useState(null);
-
-  const [name,          setName]         = useState("");
-  const [role,          setRole]         = useState("");
-  const [startDate,     setStartDate]    = useState("2026-05-15");
-  const [salary,        setSalary]       = useState(300000);
-  const [bonusPct,      setBonusPct]     = useState(0.20);
-  const [newHireGrant,  setNewHireGrant] = useState(2000000);
-  const [annualRefresh, setAnnualRefresh]= useState(200000);
+  const [name,          setName]         = useState(DEFAULT_INPUTS.name);
+  const [role,          setRole]         = useState(DEFAULT_INPUTS.role);
+  const [startDate,     setStartDate]    = useState(DEFAULT_INPUTS.startDate);
+  const [salary,        setSalary]       = useState(DEFAULT_INPUTS.salary);
+  const [bonusPct,      setBonusPct]     = useState(DEFAULT_INPUTS.bonusPct);
+  const [newHireGrant,  setNewHireGrant] = useState(DEFAULT_INPUTS.newHireGrant);
+  const [annualRefresh, setAnnualRefresh]= useState(DEFAULT_INPUTS.annualRefresh);
   const [currentPrice,  setCurrentPrice] = useState(25);
   const [growth1,       setGrowth1]      = useState(0.10);
   const [growth2,       setGrowth2]      = useState(0.15);
-  const [signOn,        setSignOn]       = useState(50000);
-  const [relo,          setRelo]         = useState(0);
+  const [signOn,        setSignOn]       = useState(DEFAULT_INPUTS.signOn);
+  const [relo,          setRelo]         = useState(DEFAULT_INPUTS.relo);
+  const [offerMode,     setOfferMode]    = useState(false);
+  const [showSignOnPublic, setShowSignOnPublic] = useState(true);
+  const [showReloPublic, setShowReloPublic] = useState(true);
   const [scenario,      setScenario]     = useState("g1");
   const [coverageType,  setCoverageType] = useState("individual");
   const [region,        setRegion]       = useState("US");
   const [activeTab,     setActiveTab]    = useState("comp");
-  const [showDisc,      setShowDisc]     = useState(false);
   const [copied,        setCopied]       = useState(false);
-  const [compLookupErr, setCompLookupErr]= useState(null);
-  const [compLookupLoading, setCompLookupLoading] = useState(false);
   const [usBenefitsDoc, setUsBenefitsDoc] = useState(null);
-
-  const offerMode = offerLoadStatus === "ok";
-
-  useEffect(() => {
-    if (!offerToken) {
-      setOfferLoadStatus("legacy");
-      return;
-    }
-    let cancelled = false;
-    setOfferLoadStatus("loading");
-    setOfferLoadError(null);
-    fetch(`/api/offer?token=${encodeURIComponent(offerToken)}`)
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Offer not found");
-        return data;
-      })
-      .then((data) => {
-        if (cancelled) return;
-        setName(data.name ?? "");
-        setRole(data.role ?? "");
-        setStartDate(data.startDate ?? "2026-05-15");
-        setSalary(Number(data.salary) || 0);
-        setBonusPct(
-          data.bonusPct != null ? Number(data.bonusPct) : 0.2,
-        );
-        setNewHireGrant(Number(data.newHireGrant) || 0);
-        setAnnualRefresh(Number(data.annualRefresh) || 0);
-        setCurrentPrice(Number(data.currentPrice) || 25);
-        setGrowth1(data.growth1 != null ? Number(data.growth1) : 0.1);
-        setGrowth2(data.growth2 != null ? Number(data.growth2) : 0.15);
-        setSignOn(data.signOn != null ? Number(data.signOn) : 0);
-        setRelo(data.relo != null ? Number(data.relo) : 0);
-        const reg = data.region;
-        if (reg && REGIONS[reg]) setRegion(reg);
-        const cov = data.coverageType;
-        if (cov === "individual" || cov === "family") setCoverageType(cov);
-        setOfferLoadStatus("ok");
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        const msg =
-          e?.message ||
-          "Invalid or expired link. Contact your recruiter.";
-        const apiHint =
-          import.meta.env.DEV
-            ? " In dev, run `npm run dev:all` (or `npm run dev:api`) so /api proxies to port 3001."
-            : "";
-        setOfferLoadError(`${msg}${apiHint}`);
-        setOfferLoadStatus("error");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [offerToken]);
-
-  useEffect(() => {
-    if (offerLoadStatus !== "legacy") return;
-    const q = role.trim();
-    if (!q) {
-      setCompLookupErr(null);
-      setCompLookupLoading(false);
-      return;
-    }
-    const t = setTimeout(async () => {
-      setCompLookupLoading(true);
-      setCompLookupErr(null);
-      try {
-        const res = await fetch(
-          `/api/compensation/lookup?${new URLSearchParams({ q, region })}`,
-        );
-        const data = await res.json();
-        if (!res.ok) {
-          setCompLookupErr(data.error || "Compensation lookup failed");
-          setCompLookupLoading(false);
-          return;
-        }
-        const v = data.values;
-        if (v) {
-          setSalary(v.salary);
-          setBonusPct(v.bonusPct);
-          setNewHireGrant(v.newHireGrant);
-          setAnnualRefresh(v.annualRefresh);
-          setSignOn(v.signOn ?? 0);
-          setRelo(v.relo ?? 0);
-        }
-      } catch {
-        setCompLookupErr(
-          "Could not reach API. Run npm run dev:all (or dev:api + dev).",
-        );
-      } finally {
-        setCompLookupLoading(false);
-      }
-    }, 350);
-    return () => clearTimeout(t);
-  }, [role, region, offerLoadStatus]);
 
   useEffect(() => {
     if (region !== "US") {
-      setUsBenefitsDoc(null);
+      queueMicrotask(() => setUsBenefitsDoc(null));
       return;
     }
     let cancelled = false;
@@ -683,6 +650,45 @@ export default function KlaviyoWealthModel() {
       cancelled = true;
     };
   }, [region]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const t = params.get("offer") || params.get("token");
+    if (!t) return;
+    let cancelled = false;
+    fetch(`/api/offer?token=${encodeURIComponent(t)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled || !data || data.ok === false) return;
+        queueMicrotask(() => {
+          if (cancelled) return;
+          setOfferMode(true);
+          if (typeof data.showSignOn === "boolean") setShowSignOnPublic(data.showSignOn);
+          if (typeof data.showRelocation === "boolean") setShowReloPublic(data.showRelocation);
+          if (data.name != null) setName(String(data.name));
+          if (data.role != null) setRole(String(data.role));
+          if (data.startDate != null) setStartDate(String(data.startDate));
+          if (data.region != null) setRegion(String(data.region));
+          if (data.coverageType != null) setCoverageType(String(data.coverageType));
+          if (data.salary != null) setSalary(Number(data.salary));
+          if (data.bonusPct != null) setBonusPct(Number(data.bonusPct));
+          if (data.signOn != null) setSignOn(Number(data.signOn));
+          if (data.relo != null) setRelo(Number(data.relo));
+          if (data.newHireGrant != null) setNewHireGrant(Number(data.newHireGrant));
+          if (data.annualRefresh != null) setAnnualRefresh(Number(data.annualRefresh));
+          if (data.currentPrice != null) setCurrentPrice(Number(data.currentPrice));
+          if (data.growth1 != null) setGrowth1(Number(data.growth1));
+          if (data.growth2 != null) setGrowth2(Number(data.growth2));
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const effectiveSignOn = offerMode && !showSignOnPublic ? 0 : signOn;
+  const effectiveRelo = offerMode && !showReloPublic ? 0 : relo;
 
   const inputs = useMemo(() => {
     const parsed = new Date(`${startDate}T12:00:00`);
@@ -698,7 +704,7 @@ export default function KlaviyoWealthModel() {
       currentPrice: safePrice,
       growth1,
       growth2,
-      signOn,
+      signOn: effectiveSignOn,
     };
   }, [
     startDate,
@@ -709,7 +715,7 @@ export default function KlaviyoWealthModel() {
     currentPrice,
     growth1,
     growth2,
-    signOn,
+    effectiveSignOn,
   ]);
 
   const { years, p1, p2, nhGrant, refreshGrants } = useMemo(()=>computeModel(inputs),[inputs]);
@@ -721,7 +727,8 @@ export default function KlaviyoWealthModel() {
   const makeTip = (props) => <ChartTip {...props} fmtC={fmtC} />;
 
   const tdcKey = scenario==="flat"?"tdcF":scenario==="g1"?"tdcG1":"tdcG2";
-  const eqKey  = scenario==="flat"?"eqF":scenario==="g1"?"eqG1":"eqG2";
+  const eqNhKey = scenario==="flat"?"eqF_nh":scenario==="g1"?"eqG1_nh":"eqG2_nh";
+  const eqRfKey = scenario==="flat"?"eqF_rf":scenario==="g1"?"eqG1_rf":"eqG2_rf";
   const total4 = years.reduce((s,y)=>s+y[tdcKey],0);
   const annualBenefits = bv.quantifiable;
   const total4WithBenefits = total4 + (annualBenefits * 4);
@@ -729,41 +736,46 @@ export default function KlaviyoWealthModel() {
   // Pie chart data
   const PIE_COLORS = {
     base:     "#C8C3BE",
-    equity:   B.poppy,
+    equityNh: B.poppy,
+    equityRf: B.eggplant,
     bonus:    B.orange,
     signOn:   B.sky,
     relo:     B.violet,
     benefits: B.lemon,
   };
 
-  const buildPieData = (baseSal, eq, bon, sOn, reloAmt, ben) => {
+  const buildPieData = (baseSal, eqNh, eqRf, bon, sOn, reloAmt, ben) => {
     const items = [
-      { name: "Base Salary",     value: Math.round(baseSal), color: PIE_COLORS.base },
-      { name: "Equity (RSUs)",   value: Math.round(eq),      color: PIE_COLORS.equity },
-      { name: "On-Target Bonus", value: Math.round(bon),     color: PIE_COLORS.bonus },
-      { name: "Sign-On",         value: Math.round(sOn),     color: PIE_COLORS.signOn },
-      { name: "Relocation",      value: Math.round(reloAmt), color: PIE_COLORS.relo },
-      { name: "Benefits Value",  value: Math.round(ben),     color: PIE_COLORS.benefits },
+      { name: "Base Salary",      value: Math.round(baseSal), color: PIE_COLORS.base },
+      { name: "NH Grant (RSUs)",  value: Math.round(eqNh),    color: PIE_COLORS.equityNh },
+      { name: "Refresh grants",   value: Math.round(eqRf),    color: PIE_COLORS.equityRf },
+      { name: "On-Target Bonus",  value: Math.round(bon),     color: PIE_COLORS.bonus },
+      { name: "Sign-On",          value: Math.round(sOn),     color: PIE_COLORS.signOn },
+      { name: "Relocation",       value: Math.round(reloAmt), color: PIE_COLORS.relo },
+      { name: "Benefits Value",   value: Math.round(ben),     color: PIE_COLORS.benefits },
     ];
     return items.filter(d => d.value > 0);
   };
 
   const yr1 = years[0];
-  const pieYear1 = buildPieData(yr1.salary, yr1[eqKey], yr1.bonus, yr1.sOn + signOn, relo, annualBenefits);
+  const pieYear1 = buildPieData(yr1.salary, yr1[eqNhKey], yr1[eqRfKey], yr1.bonus, yr1.sOn, effectiveRelo, annualBenefits);
 
-  const avgEquity = years.reduce((s,y)=>s+y[eqKey],0) / 4;
+  const avgEqNh = years.reduce((s, y) => s + y[eqNhKey], 0) / 4;
+  const avgEqRf = years.reduce((s, y) => s + y[eqRfKey], 0) / 4;
   const avgBonus  = years.reduce((s,y)=>s+y.bonus,0) / 4;
-  const avgSignOn = signOn / 4;
-  const avgRelo   = relo / 4;
-  const pieAvg = buildPieData(salary, avgEquity, avgBonus, avgSignOn, avgRelo, annualBenefits);
+  const avgSignOn = effectiveSignOn / 4;
+  const avgRelo   = effectiveRelo / 4;
+  const pieAvg = buildPieData(salary, avgEqNh, avgEqRf, avgBonus, avgSignOn, avgRelo, annualBenefits);
 
   const barData = years.map((y) => ({
     name: `Yr ${y.yr}`,
     Cash: Math.round(y.salary + y.bonus + y.sOn),
-    "Equity (RSUs)": Math.round(y[eqKey]),
+    "NH Grant (RSUs)": Math.round(y[eqNhKey]),
+    "Refresh grants": Math.round(y[eqRfKey]),
     Benefits: Math.round(annualBenefits),
   }));
 
+  const hideSignOnRow = offerMode && !showSignOnPublic;
   const tableRows = [
     { label:"RSUs Vesting",                                vals:years.map(y=>y.total>0?Math.round(y.total).toLocaleString():"—"), mono:true },
     { label:"Equity — No Appreciation",                    vals:years.map(y=>fmtC(y.eqF)),   hl:scenario==="flat", sep:true },
@@ -771,7 +783,7 @@ export default function KlaviyoWealthModel() {
     { label:`Equity — Assum. 2 (+${fmtPct(growth2)}/yr)`, vals:years.map(y=>fmtC(y.eqG2)),  hl:scenario==="g2" },
     { label:"Base Salary",   vals:years.map(y=>fmtC(y.salary)), sep:true },
     { label:"Target Bonus",  vals:years.map(y=>fmtC(y.bonus)) },
-    { label:"Sign-On Bonus", vals:years.map(y=>fmtC(y.sOn)) },
+    ...(!hideSignOnRow ? [{ label:"Sign-On Bonus", vals:years.map(y=>fmtC(y.sOn)) }] : []),
     { label:"Total — No Appreciation",                     vals:years.map(y=>fmtC(y.tdcF)),  hl:scenario==="flat", bold:true, sep:true },
     { label:`Total — Assum. 1 (+${fmtPct(growth1)}/yr)`,  vals:years.map(y=>fmtC(y.tdcG1)), hl:scenario==="g1",  bold:true },
     { label:`Total — Assum. 2 (+${fmtPct(growth2)}/yr)`,  vals:years.map(y=>fmtC(y.tdcG2)), hl:scenario==="g2",  bold:true },
@@ -790,9 +802,9 @@ export default function KlaviyoWealthModel() {
       g1: growth1 * 100,
       g2: growth2 * 100,
       signOn,
+      relo,
       region,
     });
-    if (offerToken) p.set("offer", offerToken);
     navigator.clipboard
       .writeText(
         `${window.location.origin}${window.location.pathname}?${p}`,
@@ -817,51 +829,16 @@ export default function KlaviyoWealthModel() {
       <style>{GOOGLE_FONT}</style>
       <div style={{ fontFamily:"'Instrument Sans','Helvetica Neue',sans-serif", background:B.cotton, minHeight:"100vh", color:B.charcoal }}>
 
-        {offerLoadStatus === "error" && offerToken && (
-          <div
-            role="alert"
-            style={{
-              background: "#fff0f0",
-              borderBottom: `2px solid ${B.poppy}`,
-              padding: "14px 28px",
-              fontFamily: "'Instrument Sans',sans-serif",
-              fontSize: 13,
-              color: "#a32020",
-              maxWidth: 1300,
-              margin: "0 auto",
-            }}
-          >
-            {offerLoadError ||
-              "Invalid or expired link. Contact your recruiter."}
-          </div>
-        )}
-
         {/* ══ HEADER ══════════════════════════════════════════════════════════ */}
         <header style={{ background:B.charcoal, position:"sticky", top:0, zIndex:100, borderBottom:`3px solid ${B.poppy}` }}>
           <div style={{ maxWidth:1300, margin:"0 auto", padding:"0 28px", height:56, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-              <FlagMark size={20} color="#fff" />
-              <span style={{ color:"#fff", fontSize:17, fontWeight:800, letterSpacing:"-0.03em", lineHeight:1 }}>klaviyo</span>
-              <span style={{ color:"rgba(255,255,255,0.18)", margin:"0 4px", fontSize:15 }}>|</span>
+            <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+              <KlaviyoWordmark color="#fff" fontSize={19} />
+              <span style={{ color:"rgba(255,255,255,0.18)", margin:"0 2px", fontSize:15 }}>|</span>
               <span style={{ color:"rgba(255,255,255,0.45)", fontSize:12, fontWeight:500, letterSpacing:"0.01em" }}>Total Rewards Model</span>
             </div>
             <div style={{ display:"flex", alignItems:"center", gap:10 }}>
               <span style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.1em", color:"rgba(255,255,255,0.25)" }}>Confidential</span>
-              {import.meta.env.DEV && !readOfferTokenFromUrl() && (
-                <a
-                  href="?offer=klaviyo-hackathon-demo-offer-token"
-                  style={{
-                    fontSize:11,
-                    fontWeight:600,
-                    color:"rgba(255,255,255,0.55)",
-                    fontFamily:"'Instrument Sans',sans-serif",
-                    textDecoration:"underline",
-                    textUnderlineOffset:3,
-                  }}
-                >
-                  Sample offer link
-                </a>
-              )}
               <button onClick={handleShare} style={{ display:"flex", alignItems:"center", gap:6, background:copied?B.sky:B.poppy, color:copied?B.charcoal:"#fff", border:"none", borderRadius:6, padding:"7px 15px", fontSize:12, fontWeight:700, cursor:"pointer", transition:"background 0.2s", letterSpacing:"0.02em", fontFamily:"'Instrument Sans',sans-serif" }}>
                 {copied
                   ? <><svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 8L6.5 11.5L13 4.5" stroke={B.charcoal} strokeWidth="2.2" strokeLinecap="round"/></svg> Copied!</>
@@ -898,13 +875,12 @@ export default function KlaviyoWealthModel() {
                     <button
                       key={key}
                       type="button"
-                      disabled={offerMode}
-                      onClick={() => !offerMode && setRegion(key)}
+                      onClick={() => { if (!offerMode) setRegion(key); }}
                       style={{
                         padding:"4px 10px", border:`1.5px solid ${region===key?"rgba(255,255,255,0.5)":"rgba(255,255,255,0.1)"}`,
                         borderRadius:5, background:region===key?"rgba(255,255,255,0.12)":"transparent",
                         color:region===key?"#fff":"rgba(255,255,255,0.35)", fontSize:11, fontWeight:700,
-                        cursor: offerMode ? "default" : "pointer", opacity: offerMode ? 0.85 : 1,
+                        cursor: "pointer", opacity: 1,
                         fontFamily:"'Instrument Sans',sans-serif", transition:"all 0.15s",
                       }}
                     >
@@ -912,7 +888,7 @@ export default function KlaviyoWealthModel() {
                     </button>
                   ))}
                 </div>
-                <div style={{ fontSize:9, color:"rgba(255,255,255,0.2)", fontFamily:"'Instrument Sans',sans-serif" }}>All amounts in {currency} · {REGIONS[region].label}{offerMode ? " · set by recruiter" : ""}</div>
+                <div style={{ fontSize:9, color:"rgba(255,255,255,0.2)", fontFamily:"'Instrument Sans',sans-serif" }}>All amounts in {currency} · {REGIONS[region].label}</div>
               </div>
               <div style={{ borderLeft:"1px solid rgba(255,255,255,0.1)", paddingLeft:20 }}>
                 <div style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.12em", color:"rgba(255,255,255,0.3)", marginBottom:6 }}>4-Year Cash + Equity</div>
@@ -924,7 +900,7 @@ export default function KlaviyoWealthModel() {
               <div style={{ borderLeft:"1px solid rgba(255,255,255,0.1)", paddingLeft:20 }}>
                 <div style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.12em", color:"rgba(255,255,255,0.3)", marginBottom:6 }}>4-Year Total Rewards</div>
                 <div style={{ fontSize:36, fontWeight:800, color:B.lemon, fontFamily:"'IBM Plex Mono',monospace", letterSpacing:"-0.05em", lineHeight:1 }}>{fmtC(total4WithBenefits)}</div>
-                <div style={{ fontSize:11, color:"rgba(255,255,255,0.25)", marginTop:4 }}>Includes ~{fmtC(annualBenefits)}/yr in benefits value</div>
+                <div style={{ fontSize:11, color:"rgba(255,255,255,0.25)", marginTop:4 }}>Includes ~{fmtC(annualBenefits)}/yr in estimated benefits</div>
               </div>
             </div>
           </div>
@@ -936,31 +912,25 @@ export default function KlaviyoWealthModel() {
           {/* ── SIDEBAR ──────────────────────────────────────────────────── */}
           <aside style={{ width:268, flexShrink:0, background:"#fff", borderRadius:10, border:`1.5px solid ${B.border}`, padding:"20px 18px", position:"sticky", top:78, maxHeight:"calc(100vh - 100px)", overflowY:"auto" }}>
             <Divider label="Candidate" />
-            {offerLoadStatus === "loading" && (
-              <div style={{ fontSize:11, color:B.slate, marginBottom:12, fontFamily:"'Instrument Sans',sans-serif" }}>
-                Loading your offer…
-              </div>
-            )}
-            <KInput label="Candidate Name"  value={name}      onChange={setName}     type="text" readOnly={offerMode} hint={offerMode ? "Set by recruiter for this offer link" : "Appears in the header"} />
-            <KInput label="Role / Level"    value={role}      onChange={setRole}     type="text" readOnly={offerMode} hint={offerMode ? "Set by recruiter for this offer link" : "e.g. Director, Engineering — L6"} />
-            {!offerMode && (compLookupLoading || compLookupErr) && (
-              <div style={{ fontSize:10, color: compLookupErr ? B.poppy : B.fog, marginTop:-8, marginBottom:10, lineHeight:1.45, fontFamily:"'Instrument Sans',sans-serif" }}>
-                {compLookupLoading ? "Loading compensation ranges…" : compLookupErr}
-              </div>
-            )}
+            <KInput label="Candidate Name"  value={name}      onChange={setName}     type="text" hint="Appears in the header" readOnly={offerMode} />
+            <KInput label="Role / Level"    value={role}      onChange={setRole}     type="text" hint="e.g. Director, Engineering — L5" readOnly={offerMode} />
             <Divider label="Compensation" />
-            <KInput label="Projected Start Date" value={startDate} onChange={setStartDate} type="date" readOnly={offerMode} hint={offerMode ? "Set by recruiter" : "Drives vesting schedule & bonus proration"} />
-            <KInput label="Base Salary"     value={salary}    onChange={setSalary}   prefix="$" min={0} step={10000} readOnly hint={offerMode ? "Set by recruiter" : "Level-based estimate from API (not in CSV)"} />
-            <KInput label="Bonus Target"    value={bonusPct*100} onChange={v=>setBonusPct(v/100)} suffix="%" min={0} max={100} step={5} readOnly hint={offerMode ? "Set by recruiter" : "% of base from 2026 bonus table; prorated in Year 1"} />
-            <KInput label="Sign-On Bonus"   value={signOn}    onChange={setSignOn}   prefix="$" min={0} step={5000} readOnly hint={offerMode ? "Set by recruiter" : "From offer; default 0 from lookup"} />
-            <KInput label="Relocation"      value={relo}      onChange={setRelo}     prefix="$" min={0} step={5000} readOnly hint={offerMode ? "Set by recruiter" : "From offer; default 0 from lookup"} />
+            <KInput label="Projected Start Date" value={startDate} onChange={setStartDate} type="date" hint="Drives vesting schedule & bonus proration" readOnly={offerMode} />
+            <KInput label="Base Salary"     value={salary}    onChange={setSalary}   prefix="$" min={0} step={10000} hint="Annual base" readOnly={offerMode} />
+            <KInput label="Bonus Target"    value={bonusPct*100} onChange={v=>setBonusPct(v/100)} suffix="%" min={0} max={100} step={5} hint="% of base; prorated in Year 1" readOnly={offerMode} />
+            {(!offerMode || showSignOnPublic) && (
+            <KInput label="Sign-On Bonus"   value={signOn}    onChange={setSignOn}   prefix="$" min={0} step={5000} hint="Year 1 only in model" readOnly={offerMode} />
+            )}
+            {(!offerMode || showReloPublic) && (
+            <KInput label="Relocation"      value={relo}      onChange={setRelo}     prefix="$" min={0} step={5000} hint="One-time" readOnly={offerMode} />
+            )}
             <Divider label="Equity" />
-            <KInput label="New Hire RSU Grant"    value={newHireGrant}  onChange={setNewHireGrant}  prefix="$" min={0} step={50000}  readOnly hint={offerMode ? "Set by recruiter" : "Pilot R&D mid × tier; from Source CSV via API"} />
-            <KInput label="Target Annual Refresh" value={annualRefresh} onChange={setAnnualRefresh} prefix="$" min={0} step={10000}  readOnly hint={offerMode ? "Set by recruiter" : "Derived from new-hire mid (~17.5%); from API"} />
+            <KInput label="New Hire RSU Grant"    value={newHireGrant}  onChange={setNewHireGrant}  prefix="$" min={0} step={50000}  hint="Grant value at hire" readOnly={offerMode} />
+            <KInput label="Target Annual Refresh" value={annualRefresh} onChange={setAnnualRefresh} prefix="$" min={0} step={10000}  hint="Modeled refresh amount" readOnly={offerMode} />
             <Divider label="Stock Assumptions" />
-            <KInput label="Current Stock Price"          value={currentPrice} onChange={setCurrentPrice} prefix="$" min={1} step={0.5} readOnly={offerMode} hint={offerMode ? "Set by recruiter" : ""} />
-            <KInput label="Assumption 1 — Annual Growth" value={growth1*100} onChange={v=>setGrowth1(v/100)} suffix="%" min={0} max={200} step={5} readOnly={offerMode} hint={offerMode ? "Set by recruiter" : ""} />
-            <KInput label="Assumption 2 — Annual Growth" value={growth2*100} onChange={v=>setGrowth2(v/100)} suffix="%" min={0} max={200} step={5} readOnly={offerMode} hint={offerMode ? "Set by recruiter" : ""} />
+            <KInput label="Current Stock Price"          value={currentPrice} onChange={setCurrentPrice} prefix="$" min={1} step={0.5} readOnly={offerMode} />
+            <KInput label="Assumption 1 — Annual Growth" value={growth1*100} onChange={v=>setGrowth1(v/100)} suffix="%" min={0} max={200} step={5} readOnly={offerMode} />
+            <KInput label="Assumption 2 — Annual Growth" value={growth2*100} onChange={v=>setGrowth2(v/100)} suffix="%" min={0} max={200} step={5} readOnly={offerMode} />
             {/* Stock price table */}
             <div style={{ background:B.mist, borderRadius:8, padding:"11px 12px", marginTop:14, border:`1px solid ${B.border}` }}>
               <Label>Projected Stock Price</Label>
@@ -986,31 +956,28 @@ export default function KlaviyoWealthModel() {
               <Label>Coverage Type</Label>
               <div style={{ display:"flex", gap:6 }}>
                 {[["individual","Individual"],["family","Family"]].map(([val,lbl])=>(
-                  <button key={val} type="button" disabled={offerMode} onClick={() => !offerMode && setCoverageType(val)} style={{ flex:1, padding:"7px 0", border:`1.5px solid ${coverageType===val?B.charcoal:B.border}`, borderRadius:6, background:coverageType===val?B.charcoal:"#fff", color:coverageType===val?"#fff":B.slate, fontSize:11, fontWeight:700, fontFamily:"'Instrument Sans',sans-serif", cursor: offerMode ? "default" : "pointer", opacity: offerMode ? 0.9 : 1, transition:"all 0.15s" }}>
+                  <button key={val} type="button" onClick={() => { if (!offerMode) setCoverageType(val); }} style={{ flex:1, padding:"7px 0", border:`1.5px solid ${coverageType===val?B.charcoal:B.border}`, borderRadius:6, background:coverageType===val?B.charcoal:"#fff", color:coverageType===val?"#fff":B.slate, fontSize:11, fontWeight:700, fontFamily:"'Instrument Sans',sans-serif", cursor: "pointer", opacity: 1, transition:"all 0.15s" }}>
                     {lbl}
                   </button>
                 ))}
               </div>
               <div style={{ fontSize:10, color:B.fog, marginTop:4, lineHeight:1.45, fontFamily:"'Instrument Sans',sans-serif" }}>Affects HSA and benefits estimates</div>
             </div>
-            {/* Benefits value summary */}
-            <div style={{ background:B.mist, borderRadius:8, padding:"11px 12px", marginTop:8, border:`1px solid ${B.border}` }}>
+            <Divider label="Benefits overview" />
+            <div style={{ background:B.mist, borderRadius:8, padding:"11px 12px", marginTop:4, border:`1px solid ${B.border}` }}>
               <Label>Est. Annual Benefits Value</Label>
               <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:20, fontWeight:700, color:B.violet, marginBottom:6 }}>{fmtC(annualBenefits)}</div>
-              {[
-                ["401(k) Match", fmtC(bv.match401k)],
-                ["K-Flex LSA",   fmtC(1000)],
-                ["K-Pro Learn",  fmtC(2500)],
-                ["Commuter",     fmtC(3600)],
-                ["Protection",   fmtC(bv.protection)],
-              ].map(([l,v])=>(
-                <div key={l} style={{ display:"flex", justifyContent:"space-between", borderTop:`1px solid ${B.border}`, padding:"3px 0" }}>
-                  <span style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:10, color:B.slate }}>{l}</span>
-                  <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10, color:B.charcoal }}>{v}</span>
+              {bv.summaryLines.map(([label, amt]) => (
+                <div
+                  key={label}
+                  style={{ display:"flex", justifyContent:"space-between", borderTop:`1px solid ${B.border}`, padding:"3px 0" }}
+                >
+                  <span style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:10, color:B.slate, paddingRight:8 }}>{label}</span>
+                  <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10, color:B.charcoal, whiteSpace:"nowrap" }}>{fmtC(amt)}</span>
                 </div>
               ))}
               <div style={{ fontSize:9, color:B.fog, marginTop:6, lineHeight:1.4, fontFamily:"'Instrument Sans',sans-serif" }}>
-                Excludes medical premiums, ESPP, HSA ({fmtC(coverageType==="family"?2000:1000)} available w/ HDHP), and qualitative benefits
+                Illustrative employer-side estimates (not payroll quotes). Includes modeled medical/dental/vision employer share, ESPP & HSA where elected. Excludes Global Sabbatical (5+ yrs) and other qualitative benefits.
               </div>
             </div>
           </aside>
@@ -1028,10 +995,11 @@ export default function KlaviyoWealthModel() {
                 <div style={{ display:"flex", flexWrap:"wrap", gap:"6px 14px" }}>
                   {[
                     ["Base Salary", PIE_COLORS.base],
-                    ["Equity", PIE_COLORS.equity],
+                    ["NH Grant", PIE_COLORS.equityNh],
+                    ["Refresh", PIE_COLORS.equityRf],
                     ["On-Target Bonus", PIE_COLORS.bonus],
-                    ["Sign-On", PIE_COLORS.signOn],
-                    ...(relo > 0 ? [["Relocation", PIE_COLORS.relo]] : []),
+                    ...(!offerMode || showSignOnPublic ? [["Sign-On", PIE_COLORS.signOn]] : []),
+                    ...(!offerMode ? (relo > 0 ? [["Relocation", PIE_COLORS.relo]] : []) : (showReloPublic && effectiveRelo > 0 ? [["Relocation", PIE_COLORS.relo]] : [])),
                     ["Benefits", PIE_COLORS.benefits],
                   ].map(([lbl, clr]) => (
                     <div key={lbl} style={{ display:"flex", alignItems:"center", gap:5 }}>
@@ -1127,7 +1095,7 @@ export default function KlaviyoWealthModel() {
                     </div>
                   </div>
                   <div style={{ display:"flex", gap:14 }}>
-                    {[["Cash",B.border],["Equity (RSUs)",B.poppy],["Benefits",B.violet]].map(([lbl,bg])=>(
+                    {[["Cash",B.border],["NH Grant (RSUs)",B.poppy],["Refresh grants",B.eggplant],["Benefits",B.violet]].map(([lbl,bg])=>(
                       <div key={lbl} style={{ display:"flex", alignItems:"center", gap:5 }}>
                         <div style={{ width:10, height:10, borderRadius:2, background:bg, border:`1px solid ${B.border}` }} />
                         <span style={{ fontSize:11, color:B.fog, fontFamily:"'Instrument Sans',sans-serif" }}>{lbl}</span>
@@ -1144,7 +1112,8 @@ export default function KlaviyoWealthModel() {
                       axisLine={false} tickLine={false} width={55} />
                     <Tooltip content={makeTip} cursor={{ fill:"rgba(35,33,33,0.03)" }} />
                     <Bar dataKey="Cash" stackId="a" fill={B.border} name="Cash" />
-                    <Bar dataKey="Equity (RSUs)" stackId="a" fill={B.poppy} name="Equity (RSUs)" />
+                    <Bar dataKey="NH Grant (RSUs)" stackId="a" fill={B.poppy} name="NH Grant (RSUs)" />
+                    <Bar dataKey="Refresh grants" stackId="a" fill={B.eggplant} name="Refresh grants" />
                     <Bar dataKey="Benefits" stackId="a" fill={B.violet} name="Benefits" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -1205,7 +1174,7 @@ export default function KlaviyoWealthModel() {
                     <span style={{ fontSize:10, fontWeight:700, color:"rgba(255,255,255,0.25)", fontFamily:"'Instrument Sans',sans-serif" }}>· {REGIONS[region].flag} {REGIONS[region].label}</span>
                   </div>
                   <div style={{ fontSize:42, fontWeight:800, color:B.violet, fontFamily:"'IBM Plex Mono',monospace", letterSpacing:"-0.04em", lineHeight:1 }}>{fmtC(annualBenefits)}</div>
-                  <div style={{ fontSize:11, color:"rgba(255,255,255,0.3)", marginTop:5 }}>Quantifiable employer contributions · excludes medical premiums & qualitative benefits</div>
+                  <div style={{ fontSize:11, color:"rgba(255,255,255,0.3)", marginTop:5 }}>Quantifiable employer contributions · excludes medical premiums, Global Sabbatical (5+ yrs), & qualitative benefits</div>
                 </div>
                 <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
                   {[
@@ -1297,7 +1266,7 @@ export default function KlaviyoWealthModel() {
                   {[
                     { icon:"🧠", label:"Modern Health",    desc:"8 therapy + 8 coaching sessions per year at no cost. Household members included. Available globally.", note:"~$2,400 retail value" },
                     { icon:"📈", label:"ESPP",              desc:"Purchase Klaviyo stock at a 15% discount via payroll deductions. Invest in the company you're building.", note:"15% discount" },
-                    { icon:"🌍", label:"Global Sabbatical", desc:"4 weeks fully paid after 5 years of continuous service. Recharge and pursue passion projects.", note:"After 5 years" },
+                    { icon:"🌍", label:"Global Sabbatical", desc:"4 weeks fully paid after 5 years of continuous service. Recharge and pursue passion projects.", note:"After 5 yrs · not in annual total" },
                     { icon:"✨", label:"K-Flex LSA",        desc:"Lifestyle spending account for wellness, fitness, and personal growth.", note:fmtC(1000)+"/year" },
                     { icon:"🎓", label:"K-Pro Learn",       desc:"Annual reimbursement for professional learning, certifications, and development.", note:fmtC(2500)+"/year" },
                   ].map(g=>(
@@ -1328,11 +1297,12 @@ export default function KlaviyoWealthModel() {
               </div>
 
               {/* Breakdown cards */}
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14, marginBottom:20 }}>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(140px, 1fr))", gap:14, marginBottom:20 }}>
                 {[
-                  { label:"4-Year Cash",     value:years.reduce((s,y)=>s+y.salary+y.bonus+y.sOn,0), color:B.charcoal, sub:"Salary + Bonus + Sign-On" },
-                  { label:"4-Year Equity",   value:years.reduce((s,y)=>s+y[eqKey],0),               color:B.poppy,    sub:scenario==="flat"?"No appreciation":scenario==="g1"?`+${fmtPct(growth1)}/yr`:`+${fmtPct(growth2)}/yr` },
-                  { label:"4-Year Benefits", value:annualBenefits*4,                                  color:B.violet,   sub:"Est. quantifiable value" },
+                  { label:"4-Year Cash",       value:years.reduce((s,y)=>s+y.salary+y.bonus+y.sOn,0), color:B.charcoal, sub: offerMode && !showSignOnPublic ? "Salary + Bonus" : "Salary + Bonus + Sign-On" },
+                  { label:"4-Year NH Grant",   value:years.reduce((s,y)=>s+y[eqNhKey],0),               color:B.poppy,    sub:scenario==="flat"?"No appreciation":scenario==="g1"?`+${fmtPct(growth1)}/yr`:`+${fmtPct(growth2)}/yr` },
+                  { label:"4-Year Refresh",    value:years.reduce((s,y)=>s+y[eqRfKey],0),               color:B.eggplant, sub:"Modeled annual refresh" },
+                  { label:"4-Year Benefits",   value:annualBenefits*4,                                  color:B.violet,   sub:"Est. quantifiable value" },
                 ].map(c=>(
                   <div key={c.label} style={{ background:"#fff", border:`1.5px solid ${B.border}`, borderRadius:10, padding:"20px", textAlign:"center" }}>
                     <div style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.1em", color:B.fog, marginBottom:8 }}>{c.label}</div>
@@ -1358,8 +1328,11 @@ export default function KlaviyoWealthModel() {
                     <tbody>
                       {[
                         { label:"Base Salary",       vals:years.map(y=>fmtC(y.salary)),             color:B.charcoal },
-                        { label:"Bonus + Sign-On",   vals:years.map(y=>fmtC(y.bonus+y.sOn)),        color:B.charcoal },
-                        { label:"Equity (RSUs)",     vals:years.map(y=>fmtC(y[eqKey])),             color:B.poppy, bold:true },
+                        ...(offerMode && !showSignOnPublic
+                          ? [{ label:"Bonus", vals:years.map(y=>fmtC(y.bonus)), color:B.charcoal }]
+                          : [{ label:"Bonus + Sign-On", vals:years.map(y=>fmtC(y.bonus+y.sOn)), color:B.charcoal }]),
+                        { label:"NH Grant (RSUs)",   vals:years.map(y=>fmtC(y[eqNhKey])),           color:B.poppy, bold:true },
+                        { label:"Refresh grants",    vals:years.map(y=>fmtC(y[eqRfKey])),           color:B.eggplant, bold:true },
                         { label:"Est. Benefits Value", vals:years.map(()=>fmtC(annualBenefits)),    color:B.violet },
                       ].map((row,i)=>(
                         <tr key={i} style={{ borderTop:`1px solid ${B.mist}` }}>
