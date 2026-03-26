@@ -6,14 +6,16 @@ import crypto from 'crypto'
  */
 export function verifyGreenhouseSignature(rawBody, signatureHeader, secret) {
   if (!secret || typeof signatureHeader !== 'string') return false
-  const expected = crypto
+  const expectedHex = crypto
     .createHmac('sha256', secret)
     .update(rawBody)
     .digest('hex')
-  const sig = signatureHeader.trim()
+  let sigHex = signatureHeader.trim().toLowerCase()
+  if (sigHex.startsWith('sha256=')) sigHex = sigHex.slice(7)
+  if (!/^[0-9a-f]*$/.test(sigHex) || sigHex.length % 2 !== 0) return false
   try {
-    const a = Buffer.from(expected, 'utf8')
-    const b = Buffer.from(sig, 'utf8')
+    const a = Buffer.from(expectedHex, 'hex')
+    const b = Buffer.from(sigHex, 'hex')
     if (a.length !== b.length) return false
     return crypto.timingSafeEqual(a, b)
   } catch {

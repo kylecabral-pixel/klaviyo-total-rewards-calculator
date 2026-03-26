@@ -610,6 +610,41 @@ const DEFAULT_INPUTS = {
   relo: 0,
 };
 
+/** Shared demo links (?offer=…) use these tokens: sidebar stays editable like playground mode. */
+const DEMO_OFFER_TOKENS = new Set(['klaviyo-hackathon-demo-offer-token']);
+
+/**
+ * When GET /api/offer is missing (e.g. static-only deploy) or returns non-JSON, we still
+ * hydrate the demo link from this payload. Keep in sync with server/data/offers.json.
+ */
+const DEMO_OFFER_FALLBACK = {
+  ok: true,
+  name: 'Kyle Cabral',
+  role: 'Director of Software Engineering — L5',
+  startDate: '2026-04-01',
+  region: 'US',
+  coverageType: 'individual',
+  salary: 305000,
+  bonusPct: 0.2,
+  signOn: 10000,
+  relo: 0,
+  newHireGrant: 750000,
+  annualRefresh: 250000,
+  currentPrice: 25,
+  growth1: 0.1,
+  growth2: 0.15,
+  showSignOn: true,
+  showRelocation: false,
+}
+
+function tryParseJsonResponseText(text) {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
+}
+
 /* ─── Main component ────────────────────────────────────────────────────────── */
 export default function KlaviyoWealthModel() {
   const [name,          setName]         = useState(DEFAULT_INPUTS.name);
@@ -625,6 +660,7 @@ export default function KlaviyoWealthModel() {
   const [signOn,        setSignOn]       = useState(DEFAULT_INPUTS.signOn);
   const [relo,          setRelo]         = useState(DEFAULT_INPUTS.relo);
   const [offerMode,     setOfferMode]    = useState(false);
+  const [loadedOfferToken, setLoadedOfferToken] = useState(null);
   const [showSignOnPublic, setShowSignOnPublic] = useState(true);
   const [showReloPublic, setShowReloPublic] = useState(true);
   const [scenario,      setScenario]     = useState("g1");
@@ -634,6 +670,12 @@ export default function KlaviyoWealthModel() {
   const [copied,        setCopied]       = useState(false);
   const [usBenefitsDoc, setUsBenefitsDoc] = useState(null);
 
+  const urlOfferToken = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    const p = new URLSearchParams(window.location.search);
+    return (p.get("offer") || p.get("token") || "").trim();
+  }, []);
+
   useEffect(() => {
     if (region !== "US") {
       queueMicrotask(() => setUsBenefitsDoc(null));
@@ -641,9 +683,10 @@ export default function KlaviyoWealthModel() {
     }
     let cancelled = false;
     fetch("/api/benefits/us")
-      .then((r) => r.json())
+      .then((r) => r.text())
+      .then((text) => tryParseJsonResponseText(text))
       .then((data) => {
-        if (!cancelled && data.ok) setUsBenefitsDoc(data);
+        if (!cancelled && data && data.ok) setUsBenefitsDoc(data);
       })
       .catch(() => {});
     return () => {
@@ -653,39 +696,55 @@ export default function KlaviyoWealthModel() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const t = params.get("offer") || params.get("token");
+    const raw = params.get("offer") || params.get("token");
+    if (!raw) return;
+    const t = raw.trim();
     if (!t) return;
     let cancelled = false;
+
+    const applyOfferPayload = (data) => {
+      if (cancelled || !data || data.ok === false) return;
+      queueMicrotask(() => {
+        if (cancelled) return;
+        setOfferMode(true);
+        setLoadedOfferToken(t);
+        if (typeof data.showSignOn === "boolean") setShowSignOnPublic(data.showSignOn);
+        if (typeof data.showRelocation === "boolean") setShowReloPublic(data.showRelocation);
+        if (data.name != null) setName(String(data.name));
+        if (data.role != null) setRole(String(data.role));
+        if (data.startDate != null) setStartDate(String(data.startDate));
+        if (data.region != null) setRegion(String(data.region));
+        if (data.coverageType != null) setCoverageType(String(data.coverageType));
+        if (data.salary != null) setSalary(Number(data.salary));
+        if (data.bonusPct != null) setBonusPct(Number(data.bonusPct));
+        if (data.signOn != null) setSignOn(Number(data.signOn));
+        if (data.relo != null) setRelo(Number(data.relo));
+        if (data.newHireGrant != null) setNewHireGrant(Number(data.newHireGrant));
+        if (data.annualRefresh != null) setAnnualRefresh(Number(data.annualRefresh));
+        if (data.currentPrice != null) setCurrentPrice(Number(data.currentPrice));
+        if (data.growth1 != null) setGrowth1(Number(data.growth1));
+        if (data.growth2 != null) setGrowth2(Number(data.growth2));
+      });
+    };
+
+    if (DEMO_OFFER_TOKENS.has(t)) {
+      applyOfferPayload(DEMO_OFFER_FALLBACK);
+    }
+
     fetch(`/api/offer?token=${encodeURIComponent(t)}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (cancelled || !data || data.ok === false) return;
-        queueMicrotask(() => {
-          if (cancelled) return;
-          setOfferMode(true);
-          if (typeof data.showSignOn === "boolean") setShowSignOnPublic(data.showSignOn);
-          if (typeof data.showRelocation === "boolean") setShowReloPublic(data.showRelocation);
-          if (data.name != null) setName(String(data.name));
-          if (data.role != null) setRole(String(data.role));
-          if (data.startDate != null) setStartDate(String(data.startDate));
-          if (data.region != null) setRegion(String(data.region));
-          if (data.coverageType != null) setCoverageType(String(data.coverageType));
-          if (data.salary != null) setSalary(Number(data.salary));
-          if (data.bonusPct != null) setBonusPct(Number(data.bonusPct));
-          if (data.signOn != null) setSignOn(Number(data.signOn));
-          if (data.relo != null) setRelo(Number(data.relo));
-          if (data.newHireGrant != null) setNewHireGrant(Number(data.newHireGrant));
-          if (data.annualRefresh != null) setAnnualRefresh(Number(data.annualRefresh));
-          if (data.currentPrice != null) setCurrentPrice(Number(data.currentPrice));
-          if (data.growth1 != null) setGrowth1(Number(data.growth1));
-          if (data.growth2 != null) setGrowth2(Number(data.growth2));
-        });
-      })
+      .then((r) => r.text())
+      .then((text) => tryParseJsonResponseText(text))
+      .then((data) => applyOfferPayload(data))
       .catch(() => {});
     return () => {
       cancelled = true;
     };
   }, []);
+
+  const isDemoOfferLink =
+    (urlOfferToken && DEMO_OFFER_TOKENS.has(urlOfferToken)) ||
+    (loadedOfferToken && DEMO_OFFER_TOKENS.has(loadedOfferToken));
+  const offerSidebarLocked = offerMode && !isDemoOfferLink;
 
   const effectiveSignOn = offerMode && !showSignOnPublic ? 0 : signOn;
   const effectiveRelo = offerMode && !showReloPublic ? 0 : relo;
@@ -875,7 +934,7 @@ export default function KlaviyoWealthModel() {
                     <button
                       key={key}
                       type="button"
-                      onClick={() => { if (!offerMode) setRegion(key); }}
+                      onClick={() => { if (!offerSidebarLocked) setRegion(key); }}
                       style={{
                         padding:"4px 10px", border:`1.5px solid ${region===key?"rgba(255,255,255,0.5)":"rgba(255,255,255,0.1)"}`,
                         borderRadius:5, background:region===key?"rgba(255,255,255,0.12)":"transparent",
@@ -912,25 +971,25 @@ export default function KlaviyoWealthModel() {
           {/* ── SIDEBAR ──────────────────────────────────────────────────── */}
           <aside style={{ width:268, flexShrink:0, background:"#fff", borderRadius:10, border:`1.5px solid ${B.border}`, padding:"20px 18px", position:"sticky", top:78, maxHeight:"calc(100vh - 100px)", overflowY:"auto" }}>
             <Divider label="Candidate" />
-            <KInput label="Candidate Name"  value={name}      onChange={setName}     type="text" hint="Appears in the header" readOnly={offerMode} />
-            <KInput label="Role / Level"    value={role}      onChange={setRole}     type="text" hint="e.g. Director, Engineering — L5" readOnly={offerMode} />
+            <KInput label="Candidate Name"  value={name}      onChange={setName}     type="text" hint="Appears in the header" readOnly={offerSidebarLocked} />
+            <KInput label="Role / Level"    value={role}      onChange={setRole}     type="text" hint="e.g. Director, Engineering — L5" readOnly={offerSidebarLocked} />
             <Divider label="Compensation" />
-            <KInput label="Projected Start Date" value={startDate} onChange={setStartDate} type="date" hint="Drives vesting schedule & bonus proration" readOnly={offerMode} />
-            <KInput label="Base Salary"     value={salary}    onChange={setSalary}   prefix="$" min={0} step={10000} hint="Annual base" readOnly={offerMode} />
-            <KInput label="Bonus Target"    value={bonusPct*100} onChange={v=>setBonusPct(v/100)} suffix="%" min={0} max={100} step={5} hint="% of base; prorated in Year 1" readOnly={offerMode} />
+            <KInput label="Projected Start Date" value={startDate} onChange={setStartDate} type="date" hint="Drives vesting schedule & bonus proration" readOnly={offerSidebarLocked} />
+            <KInput label="Base Salary"     value={salary}    onChange={setSalary}   prefix="$" min={0} step={10000} hint="Annual base" readOnly={offerSidebarLocked} />
+            <KInput label="Bonus Target"    value={bonusPct*100} onChange={v=>setBonusPct(v/100)} suffix="%" min={0} max={100} step={5} hint="% of base; prorated in Year 1" readOnly={offerSidebarLocked} />
             {(!offerMode || showSignOnPublic) && (
-            <KInput label="Sign-On Bonus"   value={signOn}    onChange={setSignOn}   prefix="$" min={0} step={5000} hint="Year 1 only in model" readOnly={offerMode} />
+            <KInput label="Sign-On Bonus"   value={signOn}    onChange={setSignOn}   prefix="$" min={0} step={5000} hint="Year 1 only in model" readOnly={offerSidebarLocked} />
             )}
             {(!offerMode || showReloPublic) && (
-            <KInput label="Relocation"      value={relo}      onChange={setRelo}     prefix="$" min={0} step={5000} hint="One-time" readOnly={offerMode} />
+            <KInput label="Relocation"      value={relo}      onChange={setRelo}     prefix="$" min={0} step={5000} hint="One-time" readOnly={offerSidebarLocked} />
             )}
             <Divider label="Equity" />
-            <KInput label="New Hire RSU Grant"    value={newHireGrant}  onChange={setNewHireGrant}  prefix="$" min={0} step={50000}  hint="Grant value at hire" readOnly={offerMode} />
-            <KInput label="Target Annual Refresh" value={annualRefresh} onChange={setAnnualRefresh} prefix="$" min={0} step={10000}  hint="Modeled refresh amount" readOnly={offerMode} />
+            <KInput label="New Hire RSU Grant"    value={newHireGrant}  onChange={setNewHireGrant}  prefix="$" min={0} step={50000}  hint="Grant value at hire" readOnly={offerSidebarLocked} />
+            <KInput label="Target Annual Refresh" value={annualRefresh} onChange={setAnnualRefresh} prefix="$" min={0} step={10000}  hint="Modeled refresh amount" readOnly={offerSidebarLocked} />
             <Divider label="Stock Assumptions" />
-            <KInput label="Current Stock Price"          value={currentPrice} onChange={setCurrentPrice} prefix="$" min={1} step={0.5} readOnly={offerMode} />
-            <KInput label="Assumption 1 — Annual Growth" value={growth1*100} onChange={v=>setGrowth1(v/100)} suffix="%" min={0} max={200} step={5} readOnly={offerMode} />
-            <KInput label="Assumption 2 — Annual Growth" value={growth2*100} onChange={v=>setGrowth2(v/100)} suffix="%" min={0} max={200} step={5} readOnly={offerMode} />
+            <KInput label="Current Stock Price"          value={currentPrice} onChange={setCurrentPrice} prefix="$" min={1} step={0.5} readOnly={offerSidebarLocked} />
+            <KInput label="Assumption 1 — Annual Growth" value={growth1*100} onChange={v=>setGrowth1(v/100)} suffix="%" min={0} max={200} step={5} readOnly={offerSidebarLocked} />
+            <KInput label="Assumption 2 — Annual Growth" value={growth2*100} onChange={v=>setGrowth2(v/100)} suffix="%" min={0} max={200} step={5} readOnly={offerSidebarLocked} />
             {/* Stock price table */}
             <div style={{ background:B.mist, borderRadius:8, padding:"11px 12px", marginTop:14, border:`1px solid ${B.border}` }}>
               <Label>Projected Stock Price</Label>
@@ -956,7 +1015,7 @@ export default function KlaviyoWealthModel() {
               <Label>Coverage Type</Label>
               <div style={{ display:"flex", gap:6 }}>
                 {[["individual","Individual"],["family","Family"]].map(([val,lbl])=>(
-                  <button key={val} type="button" onClick={() => { if (!offerMode) setCoverageType(val); }} style={{ flex:1, padding:"7px 0", border:`1.5px solid ${coverageType===val?B.charcoal:B.border}`, borderRadius:6, background:coverageType===val?B.charcoal:"#fff", color:coverageType===val?"#fff":B.slate, fontSize:11, fontWeight:700, fontFamily:"'Instrument Sans',sans-serif", cursor: "pointer", opacity: 1, transition:"all 0.15s" }}>
+                  <button key={val} type="button" onClick={() => { if (!offerSidebarLocked) setCoverageType(val); }} style={{ flex:1, padding:"7px 0", border:`1.5px solid ${coverageType===val?B.charcoal:B.border}`, borderRadius:6, background:coverageType===val?B.charcoal:"#fff", color:coverageType===val?"#fff":B.slate, fontSize:11, fontWeight:700, fontFamily:"'Instrument Sans',sans-serif", cursor: "pointer", opacity: 1, transition:"all 0.15s" }}>
                     {lbl}
                   </button>
                 ))}
@@ -1299,7 +1358,7 @@ export default function KlaviyoWealthModel() {
               {/* Breakdown cards */}
               <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(140px, 1fr))", gap:14, marginBottom:20 }}>
                 {[
-                  { label:"4-Year Cash",       value:years.reduce((s,y)=>s+y.salary+y.bonus+y.sOn,0), color:B.charcoal, sub: offerMode && !showSignOnPublic ? "Salary + Bonus" : "Salary + Bonus + Sign-On" },
+                  { label:"4-Year Cash",       value:years.reduce((s,y)=>s+y.salary+y.bonus+((offerMode && !showSignOnPublic)?0:y.sOn),0), color:B.charcoal, sub: offerMode && !showSignOnPublic ? "Salary + Bonus" : "Salary + Bonus + Sign-On" },
                   { label:"4-Year NH Grant",   value:years.reduce((s,y)=>s+y[eqNhKey],0),               color:B.poppy,    sub:scenario==="flat"?"No appreciation":scenario==="g1"?`+${fmtPct(growth1)}/yr`:`+${fmtPct(growth2)}/yr` },
                   { label:"4-Year Refresh",    value:years.reduce((s,y)=>s+y[eqRfKey],0),               color:B.eggplant, sub:"Modeled annual refresh" },
                   { label:"4-Year Benefits",   value:annualBenefits*4,                                  color:B.violet,   sub:"Est. quantifiable value" },
