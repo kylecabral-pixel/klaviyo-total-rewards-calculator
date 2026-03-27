@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef, useLayoutEffect } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell } from "recharts";
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -563,30 +563,125 @@ const Badge = ({ children, color, large }) => (
   </span>
 );
 
+/** Line-level tooltip for year card rows — dark pill beside the row (flips left if viewport is tight). */
+const LineTooltipRow = ({ tip, children }) => {
+  const [show, setShow] = useState(false);
+  const [placeLeft, setPlaceLeft] = useState(false);
+  const wrapRef = useRef(null);
+  const tipRef = useRef(null);
+
+  // Measure tooltip width after mount to choose left vs right; sync update avoids flicker.
+  useLayoutEffect(() => {
+    if (!show || !wrapRef.current || !tipRef.current) return;
+    const margin = 8;
+    const tipEl = tipRef.current;
+    const row = wrapRef.current.getBoundingClientRect();
+    const tipW = tipEl.offsetWidth;
+    const spaceRight = window.innerWidth - row.right - margin;
+    const spaceLeft = row.left - margin;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- layout measurement after tooltip DOM exists
+    setPlaceLeft(tipW > spaceRight && spaceLeft >= spaceRight);
+  }, [show, tip]);
+
+  return (
+    <div
+      ref={wrapRef}
+      style={{
+        position: "relative",
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginBottom: 4,
+        width: "100%",
+        cursor: "pointer",
+        transition: "opacity 0.12s ease",
+      }}
+      onMouseEnter={() => setShow(true)}
+      onMouseLeave={() => setShow(false)}
+    >
+      {children}
+      {show && tip && (
+        <div
+          ref={tipRef}
+          role="tooltip"
+          style={{
+            position: "absolute",
+            top: "50%",
+            transform: "translateY(-50%)",
+            ...(placeLeft
+              ? { right: "100%", marginRight: 8, left: "auto" }
+              : { left: "100%", marginLeft: 8, right: "auto" }),
+            zIndex: 30,
+            maxWidth: 280,
+            padding: "8px 10px",
+            background: B.charcoal,
+            color: "#fff",
+            fontSize: 10,
+            lineHeight: 1.35,
+            borderRadius: 8,
+            boxShadow: "0 4px 20px rgba(0,0,0,0.35)",
+            fontFamily: "'Instrument Sans',sans-serif",
+            pointerEvents: "none",
+            border: "1px solid rgba(255,255,255,0.12)",
+            textAlign: "left",
+          }}
+        >
+          {tip}
+        </div>
+      )}
+    </div>
+  );
+};
+
 /* ─── Year card ─────────────────────────────────────────────────────────────── */
-const YearCard = ({ data, scenario, growth1, growth2, currentPrice, active, fmtC = fmt$, sym, fxMult }) => {
+const YearCard = ({ data, scenario, growth1, growth2, currentPrice, active, onSelect, fmtC = fmt$, sym, fxMult }) => {
   const eqNh = scenario==="flat"?data.eqF_nh:scenario==="g1"?data.eqG1_nh:data.eqG2_nh;
   const eqRf = scenario==="flat"?data.eqF_rf:scenario==="g1"?data.eqG1_rf:data.eqG2_rf;
   const eq  = eqNh + eqRf;
   const tdc = scenario==="flat"?data.tdcF:scenario==="g1"?data.tdcG1:data.tdcG2;
   const px  = scenario==="flat"?currentPrice:scenario==="g1"?currentPrice*Math.pow(1+growth1,data.yr):currentPrice*Math.pow(1+growth2,data.yr);
   const eqShare = tdc>0?Math.min(1,eq/tdc):0;
+  const nhRsus = px > 0 ? Math.round(eqNh / px) : 0;
+  const nhTip = `${nhRsus.toLocaleString()} RSUs × ${sym}${(px * (fxMult ?? 1)).toFixed(2)} projected stock price`;
   const rows = [
-    { l:"Salary", v:fmtC(data.salary), hi:false },
-    { l:"Bonus*",  v:fmtC(data.bonus),  hi:false, dim:!data.bonus },
-    ...(data.sOn?[{ l:"Sign-On", v:fmtC(data.sOn), hi:true, valColor:B.poppy }]:[]),
-    { l:"NH Grant", v:fmtC(eqNh), hi:true, valColor:B.poppy },
-    { l:"Refresh", v:fmtC(eqRf), hi:true, valColor:B.eggplant, dim:!eqRf },
+    { l:"Salary", v:fmtC(data.salary), hi:false, tip: "Annual base salary" },
+    { l:"Bonus*",  v:fmtC(data.bonus),  hi:false, dim:!data.bonus, tip: "On-target bonus · determined by company and individual performance" },
+    ...(data.sOn?[{ l:"Sign-On", v:fmtC(data.sOn), hi:true, valColor:B.poppy, tip: "One-time sign-on bonus · Year 1 only" }]:[]),
+    { l:"NH Grant", v:fmtC(eqNh), hi:true, valColor:B.poppy, tip: nhTip },
+    { l:"Refresh", v:fmtC(eqRf), hi:true, valColor:B.eggplant, dim:!eqRf, tip: "Performance-based annual refresh grant · not guaranteed" },
   ];
   return (
-    <div style={{ flex:"1 1 148px", minWidth:140, background:active?B.charcoal:"#fff", border:`1.5px solid ${active?B.charcoal:B.border}`, borderRadius:10, padding:"16px 15px 14px", position:"relative", overflow:"hidden", transition:"all 0.2s" }}>
-      <div style={{ position:"absolute", top:0, left:0, right:0, height:3, background:active?B.poppy:B.border }} />
-      <div style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:10, fontWeight:800, color:active?"rgba(255,255,255,0.4)":B.fog, textTransform:"uppercase", letterSpacing:"0.12em", marginBottom:11, marginTop:4 }}>Year {data.yr}</div>
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+      style={{
+        flex: "1 1 148px",
+        minWidth: 140,
+        background: active ? B.charcoal : "#fff",
+        border: `1.5px solid ${active ? B.charcoal : B.border}`,
+        borderRadius: 10,
+        padding: "16px 15px 14px",
+        position: "relative",
+        overflow: "visible",
+        transition: "background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease",
+        cursor: "pointer",
+        boxShadow: active ? "0 4px 14px rgba(35,33,33,0.12)" : "none",
+      }}
+    >
+      <div style={{ position:"absolute", top:0, left:0, right:0, height:3, background:active?B.poppy:B.border, transition:"background 0.12s ease" }} />
+      <div style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:10, fontWeight:800, color:active?"rgba(255,255,255,0.4)":B.fog, textTransform:"uppercase", letterSpacing:"0.12em", marginBottom:11, marginTop:4, transition:"color 0.12s ease" }}>Year {data.yr}</div>
       {rows.map(r=>(
-        <div key={r.l} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
-          <span style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:11, color:active?(r.dim?"rgba(255,255,255,0.2)":"rgba(255,255,255,0.55)"):(r.dim?B.fog:B.slate) }}>{r.l}</span>
-          <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:11, fontWeight:600, color:r.hi?(r.valColor||B.poppy):active?"rgba(255,255,255,0.8)":B.charcoal }}>{r.v}</span>
-        </div>
+        <LineTooltipRow key={r.l} tip={r.tip}>
+          <span style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:11, color:active?(r.dim?"rgba(255,255,255,0.2)":"rgba(255,255,255,0.55)"):(r.dim?B.fog:B.slate), transition:"color 0.12s ease" }}>{r.l}</span>
+          <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:11, fontWeight:600, color:r.hi?(r.valColor||B.poppy):active?"rgba(255,255,255,0.8)":B.charcoal, transition:"color 0.12s ease" }}>{r.v}</span>
+        </LineTooltipRow>
       ))}
       <div style={{ height:2, background:active?"rgba(255,255,255,0.1)":B.border, borderRadius:1, margin:"10px 0", display:"flex", overflow:"hidden", transition:"all 0.5s ease" }}>
         {eqShare > 0 && (
@@ -597,10 +692,10 @@ const YearCard = ({ data, scenario, growth1, growth2, currentPrice, active, fmtC
         )}
       </div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
-        <span style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em", color:active?"rgba(255,255,255,0.35)":B.fog }}>Total</span>
-        <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:16, fontWeight:700, color:active?"#fff":B.charcoal, letterSpacing:"-0.03em" }}>{fmtC(tdc)}</span>
+        <span style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em", color:active?"rgba(255,255,255,0.35)":B.fog, transition:"color 0.12s ease" }}>Total</span>
+        <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:16, fontWeight:700, color:active?"#fff":B.charcoal, letterSpacing:"-0.03em", transition:"color 0.12s ease" }}>{fmtC(tdc)}</span>
       </div>
-      {data.total>0&&<div style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:9, color:active?"rgba(255,255,255,0.25)":B.fog, marginTop:2, textAlign:"right" }}>{Math.round(data.total).toLocaleString()} RSUs @ {sym}{(px * (fxMult ?? 1)).toFixed(2)}</div>}
+      {data.total>0&&<div style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:9, color:active?"rgba(255,255,255,0.25)":B.fog, marginTop:2, textAlign:"right", transition:"color 0.12s ease" }}>{Math.round(data.total).toLocaleString()} RSUs @ {sym}{(px * (fxMult ?? 1)).toFixed(2)}</div>}
     </div>
   );
 };
@@ -719,6 +814,8 @@ export default function KlaviyoWealthModel() {
   const [coverageType,  setCoverageType] = useState("individual");
   const [region,        setRegion]       = useState("US");
   const [activeTab,     setActiveTab]    = useState("comp");
+  /** Selected year card (0–3) drives the left Total Rewards Snapshot donut. */
+  const [snapshotYearIndex, setSnapshotYearIndex] = useState(0);
   const [copied,        setCopied]       = useState(false);
   /** Timestamp when this session loaded the model (footer “Model generated”). */
   const [modelGeneratedAt] = useState(() => new Date());
@@ -866,6 +963,7 @@ export default function KlaviyoWealthModel() {
   ]);
 
   const { years, p1, p2, nhGrant, refreshGrants } = useMemo(()=>computeModel(inputs),[inputs]);
+
   const bv = useMemo(()=>computeBenefitsValue(salary, coverageType),[salary, coverageType]);
 
   // Currency: state is always USD; display uses ECB/Frankfurter (or defaults) vs selected region.
@@ -932,8 +1030,18 @@ export default function KlaviyoWealthModel() {
     return items.filter(d => d.value > 0);
   };
 
-  const yr1 = years[0];
-  const pieYear1 = buildPieData(yr1.salary, yr1[eqNhKey], yr1[eqRfKey], yr1.bonus, yr1.sOn, effectiveRelo, annualBenefits);
+  const snapIdx = Math.min(snapshotYearIndex, Math.max(0, years.length - 1));
+  const yrSnap = years[snapIdx] ?? years[0];
+  const reloForSnapPie = yrSnap.yr === 1 ? effectiveRelo : 0;
+  const pieYearSnap = buildPieData(
+    yrSnap.salary,
+    yrSnap[eqNhKey],
+    yrSnap[eqRfKey],
+    yrSnap.bonus,
+    yrSnap.sOn,
+    reloForSnapPie,
+    annualBenefits,
+  );
 
   const avgEqNh = years.reduce((s, y) => s + y[eqNhKey], 0) / 4;
   const avgEqRf = years.reduce((s, y) => s + y[eqRfKey], 0) / 4;
@@ -1336,7 +1444,7 @@ export default function KlaviyoWealthModel() {
               </div>
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
                 {[
-                  { title:"Year 1 Breakdown", sub:`Total: ${fmtC(pieYear1.reduce((s,d)=>s+d.value,0))}`, data:pieYear1 },
+                  { title:`Year ${yrSnap.yr} Breakdown`, sub:`Total: ${fmtC(pieYearSnap.reduce((s,d)=>s+d.value,0))}`, data:pieYearSnap },
                   { title:"4-Year Average",   sub:`4-yr avg: ${fmtC(pieAvg.reduce((s,d)=>s+d.value,0))}`, data:pieAvg },
                 ].map(({ title, sub, data }) => (
                   <div key={title}>
@@ -1397,19 +1505,21 @@ export default function KlaviyoWealthModel() {
                   { key:"g1",   label:`+${fmtPct(growth1)}/yr · Assumption 1`, note: STOCK_SCENARIO_NOTES.g1 },
                   { key:"g2",   label:`+${fmtPct(growth2)}/yr · Assumption 2`, note: STOCK_SCENARIO_NOTES.g2 },
                 ].map((s)=>(
-                  <div key={s.key} style={{ flex:"1 1 140px", minWidth:120, display:"flex", flexDirection:"column", gap:0 }}>
+                  <div key={s.key} style={{ flex:"1 1 140px", minWidth:120, display:"flex", flexDirection:"column", gap:0, alignItems:"stretch" }}>
                     <button type="button" onClick={()=>setScenario(s.key)} style={{
-                      width:"100%", padding:"9px 8px", border:`1.5px solid ${scenario===s.key?B.charcoal:B.border}`,
+                      width:"100%", padding:"9px 10px", border:`1.5px solid ${scenario===s.key?B.charcoal:B.border}`,
                       borderRadius:7, background:scenario===s.key?B.charcoal:"#fff",
                       color:scenario===s.key?"#fff":B.slate,
                       fontSize:11, fontWeight:700, fontFamily:"'Instrument Sans',sans-serif",
                       cursor:"pointer", transition:"all 0.15s", letterSpacing:"0.03em",
-                      textAlign:"left",
+                      textAlign:"center",
                     }}>
-                      {s.label}
-                      {scenario===s.key&&<span style={{ display:"inline-block", width:5, height:5, borderRadius:"50%", background:B.poppy, marginLeft:6, verticalAlign:"middle" }}/>}
+                      <span style={{ display:"inline-flex", alignItems:"center", justifyContent:"center", gap:6, flexWrap:"wrap", textAlign:"center", width:"100%", boxSizing:"border-box" }}>
+                        {s.label}
+                        {scenario===s.key&&<span style={{ display:"inline-block", width:5, height:5, borderRadius:"50%", background:B.poppy, flexShrink:0 }} />}
+                      </span>
                     </button>
-                    <div style={{ fontSize:9, color:B.fog, marginTop:6, lineHeight:1.4, fontFamily:"'Instrument Sans',sans-serif", paddingLeft:2 }}>
+                    <div style={{ fontSize:9, color:B.fog, marginTop:6, lineHeight:1.4, fontFamily:"'Instrument Sans',sans-serif", textAlign:"center", padding:"0 4px" }}>
                       {s.note}
                     </div>
                   </div>
@@ -1417,9 +1527,21 @@ export default function KlaviyoWealthModel() {
               </div>
 
               {/* Year cards */}
-              <div style={{ display:"flex", gap:10, marginBottom:20, flexWrap:"wrap" }}>
+              <div style={{ display:"flex", gap:10, marginBottom:20, flexWrap:"wrap", overflow:"visible" }}>
                 {years.map((y,i)=>(
-                  <YearCard key={y.yr} data={y} scenario={scenario} growth1={growth1} growth2={growth2} currentPrice={currentPrice} active={i===0} fmtC={fmtC} sym={sym} fxMult={fxMult} />
+                  <YearCard
+                    key={y.yr}
+                    data={y}
+                    scenario={scenario}
+                    growth1={growth1}
+                    growth2={growth2}
+                    currentPrice={currentPrice}
+                    active={i===snapIdx}
+                    onSelect={() => { if (i !== snapIdx) setSnapshotYearIndex(i); }}
+                    fmtC={fmtC}
+                    sym={sym}
+                    fxMult={fxMult}
+                  />
                 ))}
               </div>
 
@@ -1581,7 +1703,7 @@ export default function KlaviyoWealthModel() {
                               cursor:"help",
                             }}
                           >
-                            Modeled · Not guaranteed
+                            PERFORMANCE-BASED
                           </span>
                         )}
                       </div>
