@@ -1,3 +1,7 @@
+/**
+ * HTTP entrypoint. Route modules live under server/routes/;
+ * integrations under server/integrations/{greenhouse,lumpages,gdrive}.
+ */
 import app from './app.js'
 
 const PORT = Number(process.env.PORT) || 3001

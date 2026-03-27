@@ -51,6 +51,17 @@ const REGIONS = {
   AU: { label: "Australia",      flag: "🇦🇺", currency: "AUD", sym: "A$", locale: "en-AU" },
 };
 
+/** Units of local currency per 1 USD (Frankfurter/ECB shape). Fallbacks until fetch succeeds. */
+const DEFAULT_FX_FROM_USD = {
+  GBP: 0.79,
+  EUR: 0.92,
+  CAD: 1.38,
+  AUD: 1.56,
+}
+
+const FRANKFURTER_LATEST =
+  "https://api.frankfurter.app/latest?from=USD&to=GBP,EUR,CAD,AUD";
+
 const REGIONAL_BENEFITS = {
   US: null,
   UK: {
@@ -514,7 +525,7 @@ const Badge = ({ children, color }) => (
 );
 
 /* ─── Year card ─────────────────────────────────────────────────────────────── */
-const YearCard = ({ data, scenario, growth1, growth2, currentPrice, active, fmtC = fmt$ }) => {
+const YearCard = ({ data, scenario, growth1, growth2, currentPrice, active, fmtC = fmt$, sym, fxMult }) => {
   const eqNh = scenario==="flat"?data.eqF_nh:scenario==="g1"?data.eqG1_nh:data.eqG2_nh;
   const eqRf = scenario==="flat"?data.eqF_rf:scenario==="g1"?data.eqG1_rf:data.eqG2_rf;
   const eq  = eqNh + eqRf;
@@ -550,7 +561,7 @@ const YearCard = ({ data, scenario, growth1, growth2, currentPrice, active, fmtC
         <span style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em", color:active?"rgba(255,255,255,0.35)":B.fog }}>Total</span>
         <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:16, fontWeight:700, color:active?"#fff":B.charcoal, letterSpacing:"-0.03em" }}>{fmtC(tdc)}</span>
       </div>
-      {data.total>0&&<div style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:9, color:active?"rgba(255,255,255,0.25)":B.fog, marginTop:2, textAlign:"right" }}>{Math.round(data.total).toLocaleString()} RSUs @ ${px.toFixed(2)}</div>}
+      {data.total>0&&<div style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:9, color:active?"rgba(255,255,255,0.25)":B.fog, marginTop:2, textAlign:"right" }}>{Math.round(data.total).toLocaleString()} RSUs @ {sym}{(px * (fxMult ?? 1)).toFixed(2)}</div>}
     </div>
   );
 };
@@ -669,6 +680,9 @@ export default function KlaviyoWealthModel() {
   const [activeTab,     setActiveTab]    = useState("comp");
   const [copied,        setCopied]       = useState(false);
   const [usBenefitsDoc, setUsBenefitsDoc] = useState(null);
+  const [fxFromUsd, setFxFromUsd] = useState(() => ({ ...DEFAULT_FX_FROM_USD }));
+  const [fxAsOf, setFxAsOf] = useState(null);
+  const [fxLive, setFxLive] = useState(false);
 
   const urlOfferToken = useMemo(() => {
     if (typeof window === "undefined") return "";
@@ -693,6 +707,23 @@ export default function KlaviyoWealthModel() {
       cancelled = true;
     };
   }, [region]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(FRANKFURTER_LATEST)
+      .then((r) => r.text())
+      .then((text) => tryParseJsonResponseText(text))
+      .then((data) => {
+        if (cancelled || !data?.rates || typeof data.rates !== "object") return;
+        setFxFromUsd((prev) => ({ ...prev, ...data.rates }));
+        if (typeof data.date === "string") setFxAsOf(data.date);
+        setFxLive(true);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -729,6 +760,11 @@ export default function KlaviyoWealthModel() {
 
     if (DEMO_OFFER_TOKENS.has(t)) {
       applyOfferPayload(DEMO_OFFER_FALLBACK);
+      // Do not fetch /api/offer for demo tokens: a successful response would re-run
+      // applyOfferPayload and overwrite DEMO_OFFER_FALLBACK (e.g. older offers.json on server).
+      return () => {
+        cancelled = true;
+      };
     }
 
     fetch(`/api/offer?token=${encodeURIComponent(t)}`)
@@ -780,9 +816,11 @@ export default function KlaviyoWealthModel() {
   const { years, p1, p2, nhGrant, refreshGrants } = useMemo(()=>computeModel(inputs),[inputs]);
   const bv = useMemo(()=>computeBenefitsValue(salary, coverageType),[salary, coverageType]);
 
-  // Currency helpers
-  const { sym, currency } = REGIONS[region];
-  const fmtC    = (v) => fmtMoney(v, sym);
+  // Currency: state is always USD; display uses ECB/Frankfurter (or defaults) vs selected region.
+  const { sym, currency, label: regionLabel } = REGIONS[region] ?? REGIONS.US;
+  const fxMult = region === "US" ? 1 : Number(fxFromUsd[currency]) || 1;
+  const invFx = fxMult > 0 ? 1 / fxMult : 1;
+  const fmtC = (v) => fmtMoney((Number(v) || 0) * fxMult, sym);
   const makeTip = (props) => <ChartTip {...props} fmtC={fmtC} />;
 
   const tdcKey = scenario==="flat"?"tdcF":scenario==="g1"?"tdcG1":"tdcG2";
@@ -947,7 +985,15 @@ export default function KlaviyoWealthModel() {
                     </button>
                   ))}
                 </div>
-                <div style={{ fontSize:9, color:"rgba(255,255,255,0.2)", fontFamily:"'Instrument Sans',sans-serif" }}>All amounts in {currency} · {REGIONS[region].label}</div>
+                <div style={{ fontSize:9, color:"rgba(255,255,255,0.2)", fontFamily:"'Instrument Sans',sans-serif", lineHeight:1.4 }}>
+                  <div>All amounts in {currency} · {regionLabel}</div>
+                  {region !== "US" && (
+                    <div style={{ marginTop:3, color:"rgba(255,255,255,0.14)" }}>
+                      1 USD = {fxMult.toLocaleString(undefined, { maximumFractionDigits: 4 })} {currency}
+                      {fxLive && fxAsOf ? ` · ECB Frankfurter (${fxAsOf})` : " · approx. rates"}
+                    </div>
+                  )}
+                </div>
               </div>
               <div style={{ borderLeft:"1px solid rgba(255,255,255,0.1)", paddingLeft:20 }}>
                 <div style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.12em", color:"rgba(255,255,255,0.3)", marginBottom:6 }}>4-Year Cash + Equity</div>
@@ -975,19 +1021,19 @@ export default function KlaviyoWealthModel() {
             <KInput label="Role / Level"    value={role}      onChange={setRole}     type="text" hint="e.g. Director, Engineering — L5" readOnly={offerSidebarLocked} />
             <Divider label="Compensation" />
             <KInput label="Projected Start Date" value={startDate} onChange={setStartDate} type="date" hint="Drives vesting schedule & bonus proration" readOnly={offerSidebarLocked} />
-            <KInput label="Base Salary"     value={salary}    onChange={setSalary}   prefix="$" min={0} step={10000} hint="Annual base" readOnly={offerSidebarLocked} />
+            <KInput label="Base Salary"     value={Math.round(salary * fxMult)}    onChange={(v)=>setSalary(Math.max(0, Math.round(v * invFx)))}   prefix={sym} min={0} step={Math.max(1000, Math.round(10000 * fxMult))} hint={`Annual base · stored in USD`} readOnly={offerSidebarLocked} />
             <KInput label="Bonus Target"    value={bonusPct*100} onChange={v=>setBonusPct(v/100)} suffix="%" min={0} max={100} step={5} hint="% of base; prorated in Year 1" readOnly={offerSidebarLocked} />
             {(!offerMode || showSignOnPublic) && (
-            <KInput label="Sign-On Bonus"   value={signOn}    onChange={setSignOn}   prefix="$" min={0} step={5000} hint="Year 1 only in model" readOnly={offerSidebarLocked} />
+            <KInput label="Sign-On Bonus"   value={Math.round(signOn * fxMult)}    onChange={(v)=>setSignOn(Math.max(0, Math.round(v * invFx)))}   prefix={sym} min={0} step={Math.max(500, Math.round(5000 * fxMult))} hint="Year 1 only in model · stored in USD" readOnly={offerSidebarLocked} />
             )}
             {(!offerMode || showReloPublic) && (
-            <KInput label="Relocation"      value={relo}      onChange={setRelo}     prefix="$" min={0} step={5000} hint="One-time" readOnly={offerSidebarLocked} />
+            <KInput label="Relocation"      value={Math.round(relo * fxMult)}      onChange={(v)=>setRelo(Math.max(0, Math.round(v * invFx)))}     prefix={sym} min={0} step={Math.max(500, Math.round(5000 * fxMult))} hint="One-time · stored in USD" readOnly={offerSidebarLocked} />
             )}
             <Divider label="Equity" />
-            <KInput label="New Hire RSU Grant"    value={newHireGrant}  onChange={setNewHireGrant}  prefix="$" min={0} step={50000}  hint="Grant value at hire" readOnly={offerSidebarLocked} />
-            <KInput label="Target Annual Refresh" value={annualRefresh} onChange={setAnnualRefresh} prefix="$" min={0} step={10000}  hint="Modeled refresh amount" readOnly={offerSidebarLocked} />
+            <KInput label="New Hire RSU Grant"    value={Math.round(newHireGrant * fxMult)}  onChange={(v)=>setNewHireGrant(Math.max(0, Math.round(v * invFx)))}  prefix={sym} min={0} step={Math.max(5000, Math.round(50000 * fxMult))}  hint="Grant value at hire · stored in USD" readOnly={offerSidebarLocked} />
+            <KInput label="Target Annual Refresh" value={Math.round(annualRefresh * fxMult)} onChange={(v)=>setAnnualRefresh(Math.max(0, Math.round(v * invFx)))} prefix={sym} min={0} step={Math.max(1000, Math.round(10000 * fxMult))}  hint="Modeled refresh · stored in USD" readOnly={offerSidebarLocked} />
             <Divider label="Stock Assumptions" />
-            <KInput label="Current Stock Price"          value={currentPrice} onChange={setCurrentPrice} prefix="$" min={1} step={0.5} readOnly={offerSidebarLocked} />
+            <KInput label="Current Stock Price"          value={Number((currentPrice * fxMult).toFixed(2))} onChange={(v)=>setCurrentPrice(Math.max(0.01, Number((v * invFx).toFixed(4))))} prefix={sym} min={0.01} step={Math.max(0.01, Number((0.5 * fxMult).toFixed(2)))} hint="USD listing · shown in local currency" readOnly={offerSidebarLocked} />
             <KInput label="Assumption 1 — Annual Growth" value={growth1*100} onChange={v=>setGrowth1(v/100)} suffix="%" min={0} max={200} step={5} readOnly={offerSidebarLocked} />
             <KInput label="Assumption 2 — Annual Growth" value={growth2*100} onChange={v=>setGrowth2(v/100)} suffix="%" min={0} max={200} step={5} readOnly={offerSidebarLocked} />
             {/* Stock price table */}
@@ -1003,8 +1049,8 @@ export default function KlaviyoWealthModel() {
                   {[0,1,2,3].map(i=>(
                     <tr key={i} style={{ borderTop:`1px solid ${B.border}` }}>
                       <td style={{ color:B.slate, padding:"3px 0", fontFamily:"'Instrument Sans',sans-serif" }}>Yr {i+1}</td>
-                      <td style={{ textAlign:"right", fontFamily:"'IBM Plex Mono',monospace", color:B.charcoal, padding:"3px 0" }}>${p1[i].toFixed(2)}</td>
-                      <td style={{ textAlign:"right", fontFamily:"'IBM Plex Mono',monospace", color:B.charcoal, padding:"3px 0" }}>${p2[i].toFixed(2)}</td>
+                      <td style={{ textAlign:"right", fontFamily:"'IBM Plex Mono',monospace", color:B.charcoal, padding:"3px 0" }}>{sym}{(p1[i] * fxMult).toFixed(2)}</td>
+                      <td style={{ textAlign:"right", fontFamily:"'IBM Plex Mono',monospace", color:B.charcoal, padding:"3px 0" }}>{sym}{(p2[i] * fxMult).toFixed(2)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1140,7 +1186,7 @@ export default function KlaviyoWealthModel() {
               {/* Year cards */}
               <div style={{ display:"flex", gap:10, marginBottom:20, flexWrap:"wrap" }}>
                 {years.map((y,i)=>(
-                  <YearCard key={y.yr} data={y} scenario={scenario} growth1={growth1} growth2={growth2} currentPrice={currentPrice} active={i===0} fmtC={fmtC} />
+                  <YearCard key={y.yr} data={y} scenario={scenario} growth1={growth1} growth2={growth2} currentPrice={currentPrice} active={i===0} fmtC={fmtC} sym={sym} fxMult={fxMult} />
                 ))}
               </div>
 
@@ -1167,7 +1213,12 @@ export default function KlaviyoWealthModel() {
                     <CartesianGrid vertical={false} stroke={B.border} />
                     <XAxis dataKey="name" tick={{ fontSize:11, fill:B.fog, fontFamily:"'Instrument Sans',sans-serif" }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fontSize:10, fill:B.fog, fontFamily:"'IBM Plex Mono',monospace" }}
-                      tickFormatter={v=>v>=1_000_000?`${sym}${(v/1_000_000).toFixed(1)}M`:`${sym}${(v/1000).toFixed(0)}K`}
+                      tickFormatter={(v) => {
+                        const w = v * fxMult;
+                        return w >= 1_000_000
+                          ? `${sym}${(w / 1_000_000).toFixed(1)}M`
+                          : `${sym}${(w / 1000).toFixed(0)}K`;
+                      }}
                       axisLine={false} tickLine={false} width={55} />
                     <Tooltip content={makeTip} cursor={{ fill:"rgba(35,33,33,0.03)" }} />
                     <Bar dataKey="Cash" stackId="a" fill={B.border} name="Cash" />
