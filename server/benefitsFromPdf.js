@@ -1,9 +1,20 @@
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { PDFParse } from 'pdf-parse'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+/** Lazy-load `pdf-parse` so `/api/health` cold starts don’t require it (Vercel compatibility). */
+async function parsePdfBuffer(buffer) {
+  const { PDFParse } = await import('pdf-parse')
+  const parser = new PDFParse({ data: buffer })
+  try {
+    const result = await parser.getText()
+    return (result.text || '').trim()
+  } finally {
+    await parser.destroy()
+  }
+}
 
 const PDF_NAME = '2026 Klaviyo US Benefits At-a-Glance (1).pdf'
 const JSON_FALLBACK = path.join(__dirname, 'data', 'us-benefits.json')
@@ -32,10 +43,7 @@ export async function loadUsBenefits() {
   const pdfPath = path.join(__dirname, '..', 'Source', PDF_NAME)
   if (fs.existsSync(pdfPath)) {
     const buffer = fs.readFileSync(pdfPath)
-    const parser = new PDFParse({ data: buffer })
-    const result = await parser.getText()
-    await parser.destroy()
-    const rawText = (result.text || '').trim()
+    const rawText = await parsePdfBuffer(buffer)
     return {
       source: 'pdf',
       title: 'US benefits (from PDF)',

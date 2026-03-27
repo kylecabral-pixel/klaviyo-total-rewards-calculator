@@ -1,9 +1,6 @@
 /**
- * Vercel serverless entry: all /api/* traffic is rewritten here (see vercel.json).
+ * Vercel entry: default-export the Express app (supported natively; no serverless-http).
+ * Rewrites: `/api` and `/api/*` → this function (`vercel.json`).
+ * Local dev: `npm run dev:api` uses `server/index.js` with the same `app`.
  */
-import serverless from 'serverless-http'
-import app from '../server/app.js'
-
-export default serverless(app, {
-  binary: ['application/json', 'application/*+json'],
-})
+export { default } from '../server/app.js'
