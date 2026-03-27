@@ -982,6 +982,10 @@ export default function KlaviyoWealthModel() {
           vals: years.map((y) =>
             fmtC(y[tdcKey] + annualBenefits - currentCompBaseline),
           ),
+          /** Raw USD deltas for per-cell positive / negative styling */
+          deltaRaw: years.map(
+            (y) => y[tdcKey] + annualBenefits - currentCompBaseline,
+          ),
           sep: true,
         }]
       : []),
@@ -1477,11 +1481,69 @@ export default function KlaviyoWealthModel() {
                     </thead>
                     <tbody>
                       {tableRows.map((row,i)=>(
-                        <tr key={i} style={{ borderTop:row.sep?`2px solid ${B.border}`:`1px solid ${B.mist}`, background:row.hl?"rgba(249,99,83,0.04)":"transparent" }}>
-                          <td style={{ padding:"7px 12px 7px 0", color:row.bold?B.charcoal:B.slate, fontWeight:row.bold?700:400, fontSize:12, whiteSpace:"nowrap", fontFamily:"'Instrument Sans',sans-serif" }}>{row.label}</td>
-                          {row.vals.map((v,j)=>(
-                            <td key={j} style={{ textAlign:"right", padding:"7px 0", fontFamily:"'IBM Plex Mono',monospace", fontSize:12, color:row.hl?B.poppy:B.charcoal, fontWeight:row.bold?700:500, opacity:row.hl?1:row.bold?1:0.85 }}>{v}</td>
-                          ))}
+                        <tr
+                          key={i}
+                          style={{
+                            borderTop: row.sep ? `2px solid ${B.border}` : `1px solid ${B.mist}`,
+                            background: row.deltaRaw
+                              ? "rgba(35,33,33,0.03)"
+                              : row.hl
+                                ? "rgba(249,99,83,0.04)"
+                                : "transparent",
+                          }}
+                        >
+                          <td
+                            style={{
+                              padding:"7px 12px 7px 0",
+                              color: row.bold ? B.charcoal : B.slate,
+                              fontWeight: row.deltaRaw ? 700 : row.bold ? 700 : 400,
+                              fontSize: 12,
+                              whiteSpace: "nowrap",
+                              fontFamily: "'Instrument Sans',sans-serif",
+                              borderLeft: row.deltaRaw ? `3px solid ${B.charcoal}` : undefined,
+                              paddingLeft: row.deltaRaw ? 9 : undefined,
+                            }}
+                          >
+                            {row.label}
+                          </td>
+                          {row.vals.map((v, j) => {
+                            const n = row.deltaRaw?.[j];
+                            const isDelta = row.deltaRaw != null && n !== undefined;
+                            const pos = isDelta && n > 0;
+                            const neg = isDelta && n < 0;
+                            return (
+                              <td
+                                key={j}
+                                style={{
+                                  textAlign: "right",
+                                  padding: "7px 8px",
+                                  fontFamily: "'IBM Plex Mono',monospace",
+                                  fontSize: 12,
+                                  fontWeight: isDelta ? 700 : row.bold ? 700 : 500,
+                                  opacity: row.hl ? 1 : row.bold ? 1 : 0.85,
+                                  ...(isDelta
+                                    ? {
+                                        background: pos
+                                          ? "rgba(22, 163, 74, 0.14)"
+                                          : neg
+                                            ? "rgba(220, 38, 38, 0.12)"
+                                            : "rgba(100, 116, 139, 0.1)",
+                                        color: pos
+                                          ? "#166534"
+                                          : neg
+                                            ? "#991b1b"
+                                            : B.slate,
+                                        borderRadius: 4,
+                                      }
+                                    : {
+                                        color: row.hl ? B.poppy : B.charcoal,
+                                      }),
+                                }}
+                              >
+                                {v}
+                              </td>
+                            );
+                          })}
                         </tr>
                       ))}
                     </tbody>
