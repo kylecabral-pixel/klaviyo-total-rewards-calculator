@@ -40,6 +40,7 @@ export const API_ENDPOINTS = [
   'GET /api — discovery (this list)',
   'GET /api/offer?token=',
   'GET /api/benefits/us',
+  'GET /api/benefits/us/pdf',
   'GET|POST /api/compensation/lookup',
   'GET /api/integrations/status',
   'GET /api/integrations/lumpages/status',

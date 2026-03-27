@@ -4,60 +4,43 @@ import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
-/** Lazy-load `pdf-parse` so `/api/health` cold starts don’t require it (Vercel compatibility). */
-async function parsePdfBuffer(buffer) {
-  const { PDFParse } = await import('pdf-parse')
-  const parser = new PDFParse({ data: buffer })
-  try {
-    const result = await parser.getText()
-    return (result.text || '').trim()
-  } finally {
-    await parser.destroy()
-  }
-}
+export const US_BENEFITS_PDF_FILENAME =
+  '2026 Klaviyo US Benefits At-a-Glance (1).pdf'
 
-const PDF_NAME = '2026 Klaviyo US Benefits At-a-Glance (1).pdf'
 const JSON_FALLBACK = path.join(__dirname, 'data', 'us-benefits.json')
 
-function splitSections(text) {
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
-  const sections = []
-  let current = null
-  for (const line of lines) {
-    const short = line.length < 80 && line === line.toUpperCase()
-    const looksHeading = short || /^[A-Z][^.]{0,60}$/.test(line)
-    if (looksHeading && line.length < 70 && !line.includes('$')) {
-      if (current) sections.push(current)
-      current = { heading: line, body: '' }
-    } else if (current) {
-      current.body += (current.body ? ' ' : '') + line
-    } else {
-      sections.push({ heading: 'Overview', body: line })
-    }
-  }
-  if (current) sections.push(current)
-  return sections.length ? sections : [{ heading: 'Benefits', body: text.slice(0, 8000) }]
+/** Absolute path to the US benefits PDF under `Source/`. */
+export function getUsBenefitsPdfAbsolutePath() {
+  return path.join(__dirname, '..', 'Source', US_BENEFITS_PDF_FILENAME)
 }
 
-export async function loadUsBenefits() {
-  const pdfPath = path.join(__dirname, '..', 'Source', PDF_NAME)
-  if (fs.existsSync(pdfPath)) {
-    const buffer = fs.readFileSync(pdfPath)
-    const rawText = await parsePdfBuffer(buffer)
+export function isUsBenefitsPdfAvailable() {
+  try {
+    return fs.existsSync(getUsBenefitsPdfAbsolutePath())
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Metadata for the Benefits tab (no PDF body — client offers download only).
+ * @returns {Promise<{ ok: true, title: string, source: string, pdfAvailable: boolean }>}
+ */
+export async function getUsBenefitsMeta() {
+  if (isUsBenefitsPdfAvailable()) {
     return {
+      ok: true,
       source: 'pdf',
-      title: 'US benefits (from PDF)',
-      rawText,
-      sections: splitSections(rawText),
+      title: 'US benefits — At-a-Glance',
+      pdfAvailable: true,
     }
   }
-
   const raw = fs.readFileSync(JSON_FALLBACK, 'utf8')
   const j = JSON.parse(raw)
   return {
+    ok: true,
     source: j.source || 'fallback',
-    title: j.title,
-    rawText: j.rawText || '',
-    sections: j.sections || [],
+    title: j.title || 'US benefits',
+    pdfAvailable: false,
   }
 }

@@ -713,14 +713,17 @@ export default function KlaviyoWealthModel() {
   const [loadedOfferToken, setLoadedOfferToken] = useState(null);
   const [showSignOnPublic, setShowSignOnPublic] = useState(true);
   const [showReloPublic, setShowReloPublic] = useState(true);
-  const [scenario,      setScenario]     = useState("flat");
+  const [scenario,      setScenario]     = useState("g1");
+  const [recruiterName, setRecruiterName] = useState(RECRUITER_CTA_CONFIG.recruiterName);
+  const [recruiterEmail, setRecruiterEmail] = useState(RECRUITER_CTA_CONFIG.recruiterEmail);
   const [coverageType,  setCoverageType] = useState("individual");
   const [region,        setRegion]       = useState("US");
   const [activeTab,     setActiveTab]    = useState("comp");
   const [copied,        setCopied]       = useState(false);
   /** Timestamp when this session loaded the model (footer “Model generated”). */
   const [modelGeneratedAt] = useState(() => new Date());
-  const [usBenefitsDoc, setUsBenefitsDoc] = useState(null);
+  /** US benefits: metadata from API; PDF is download-only (not rendered inline). */
+  const [usBenefitsMeta, setUsBenefitsMeta] = useState(null);
   const [fxFromUsd, setFxFromUsd] = useState(() => ({ ...DEFAULT_FX_FROM_USD }));
   const [fxAsOf, setFxAsOf] = useState(null);
   const [fxLive, setFxLive] = useState(false);
@@ -741,7 +744,7 @@ export default function KlaviyoWealthModel() {
 
   useEffect(() => {
     if (region !== "US") {
-      queueMicrotask(() => setUsBenefitsDoc(null));
+      queueMicrotask(() => setUsBenefitsMeta(null));
       return;
     }
     let cancelled = false;
@@ -749,7 +752,7 @@ export default function KlaviyoWealthModel() {
       .then((r) => r.text())
       .then((text) => tryParseJsonResponseText(text))
       .then((data) => {
-        if (!cancelled && data && data.ok) setUsBenefitsDoc(data);
+        if (!cancelled && data && data.ok) setUsBenefitsMeta(data);
       })
       .catch(() => {});
     return () => {
@@ -875,6 +878,12 @@ export default function KlaviyoWealthModel() {
   const tdcKey = scenario==="flat"?"tdcF":scenario==="g1"?"tdcG1":"tdcG2";
   const eqNhKey = scenario==="flat"?"eqF_nh":scenario==="g1"?"eqG1_nh":"eqG2_nh";
   const eqRfKey = scenario==="flat"?"eqF_rf":scenario==="g1"?"eqG1_rf":"eqG2_rf";
+
+  const activeScenarioLabel = useMemo(() => {
+    if (scenario === "flat") return "Viewing: Base Case (Flat Stock)";
+    if (scenario === "g1") return `Viewing: +${fmtPct(growth1)}/yr · Assumption 1`;
+    return `Viewing: +${fmtPct(growth2)}/yr · Assumption 2`;
+  }, [scenario, growth1, growth2]);
   const total4 = years.reduce((s,y)=>s+y[tdcKey],0);
   const annualBenefits = bv.quantifiable;
   const total4WithBenefits = total4 + (annualBenefits * 4);
@@ -1163,6 +1172,41 @@ export default function KlaviyoWealthModel() {
             <Divider label="Candidate" />
             <KInput label="Candidate Name"  value={name}      onChange={setName}     type="text" hint="Appears in the header" readOnly={offerSidebarLocked} />
             <KInput label="Role / Level"    value={role}      onChange={setRole}     type="text" hint="e.g. Director, Engineering — L5" readOnly={offerSidebarLocked} />
+            <Divider label="Recruiter" />
+            <KInput label="Recruiter Name" value={recruiterName} onChange={setRecruiterName} type="text" hint="Shown in the Total Rewards CTA" readOnly={offerSidebarLocked} />
+            <KInput label="Recruiter Email" value={recruiterEmail} onChange={setRecruiterEmail} type="email" hint="Contact link in the Total Rewards CTA" readOnly={offerSidebarLocked} />
+            <Divider label="Display currency" />
+            <div style={{ marginBottom:8 }}>
+              <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
+                {Object.entries(REGIONS).map(([key, r]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => { if (!offerSidebarLocked) setRegion(key); }}
+                    style={{
+                      padding:"4px 8px", border:`1.5px solid ${region===key?B.charcoal:B.border}`,
+                      borderRadius:5, background:region===key?B.charcoal:"#fff",
+                      color:region===key?"#fff":B.slate, fontSize:10, fontWeight:700,
+                      cursor:"pointer", fontFamily:"'Instrument Sans',sans-serif", transition:"all 0.15s",
+                    }}
+                  >
+                    {r.flag} {r.currency}
+                  </button>
+                ))}
+              </div>
+              <div style={{ fontSize:10, color:B.fog, marginTop:6, lineHeight:1.45, fontFamily:"'Instrument Sans',sans-serif" }}>
+                All amounts in {currency} · {regionLabel}
+              </div>
+              {region !== "US" && (
+                <div style={{ fontSize:10, color:B.slate, marginTop:8, lineHeight:1.45, fontFamily:"'Instrument Sans',sans-serif", padding:"8px 10px", background:B.mist, borderRadius:6, border:`1px solid ${B.border}` }}>
+                  <div style={{ color:B.fog, fontSize:9, marginBottom:4 }}>
+                    1 USD = {fxMult.toLocaleString(undefined, { maximumFractionDigits: 4 })} {currency}
+                    {fxLive && fxAsOf ? ` · ECB Frankfurter (${fxAsOf})` : " · approx. rates"}
+                  </div>
+                  Converted at current exchange rates for reference only. Compensation is paid in USD.
+                </div>
+              )}
+            </div>
             <Divider label="Compensation" />
             <KInput label="Projected Start Date" value={startDate} onChange={setStartDate} type="date" hint="Drives vesting schedule & bonus proration" readOnly={offerSidebarLocked} />
             <KInput label="Base Salary"     value={Math.round(salary * fxMult)}    onChange={(v)=>setSalary(Math.max(0, Math.round(v * invFx)))}   prefix={sym} min={0} step={Math.max(1000, Math.round(10000 * fxMult))} hint={`Annual base · stored in USD`} readOnly={offerSidebarLocked} />
@@ -1325,6 +1369,13 @@ export default function KlaviyoWealthModel() {
                   </div>
                 ))}
               </div>
+            </div>
+
+            <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom:14 }}>
+              <span style={{ fontSize:10, fontWeight:800, letterSpacing:"0.1em", textTransform:"uppercase", color:B.fog, fontFamily:"'Instrument Sans',sans-serif" }}>Active assumption</span>
+              <span style={{ display:"inline-block", background:B.mist, border:`1px solid ${B.border}`, borderRadius:7, padding:"7px 12px", fontSize:12, fontWeight:700, color:B.charcoal, fontFamily:"'Instrument Sans',sans-serif", letterSpacing:"0.01em" }}>
+                {activeScenarioLabel}
+              </span>
             </div>
 
             {/* View tabs */}
@@ -1567,19 +1618,41 @@ export default function KlaviyoWealthModel() {
                 </div>
               )}
 
-              {/* US: benefits at-a-glance from API (PDF or fallback JSON) */}
-              {!regionalBenefits && usBenefitsDoc?.sections?.length > 0 && (
+              {/* US: official PDF is downloadable only — not pasted inline */}
+              {!regionalBenefits && usBenefitsMeta?.ok && (
                 <div style={{ background:"#fff", border:`1.5px solid ${B.border}`, borderRadius:10, padding:"18px 20px", marginBottom:16 }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
-                    <span style={{ fontSize:14, fontWeight:800, color:B.charcoal }}>{usBenefitsDoc.title || "US benefits"}</span>
-                    <Badge color={B.sky}>{usBenefitsDoc.source === "pdf" ? "PDF" : "Reference"}</Badge>
+                  <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10, flexWrap:"wrap" }}>
+                    <span style={{ fontSize:14, fontWeight:800, color:B.charcoal }}>{usBenefitsMeta.title || "US benefits"}</span>
+                    <Badge color={B.sky}>{usBenefitsMeta.pdfAvailable ? "PDF" : "Reference"}</Badge>
                   </div>
-                  {usBenefitsDoc.sections.map((s, i) => (
-                    <div key={i} style={{ marginBottom:12, fontFamily:"'Instrument Sans',sans-serif", fontSize:12, color:B.slate, lineHeight:1.55 }}>
-                      <div style={{ fontWeight:700, color:B.charcoal, marginBottom:4 }}>{s.heading}</div>
-                      <div>{s.body}</div>
-                    </div>
-                  ))}
+                  <p style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:12, color:B.slate, lineHeight:1.55, marginBottom:14 }}>
+                    Full plan details are in Klaviyo’s official US benefits document. Download the PDF below — we don’t reproduce the full text here.
+                  </p>
+                  {usBenefitsMeta.pdfAvailable ? (
+                    <a
+                      href="/api/benefits/us/pdf"
+                      download="Klaviyo-US-Benefits-At-a-Glance.pdf"
+                      style={{
+                        display:"inline-flex",
+                        alignItems:"center",
+                        gap:8,
+                        padding:"9px 16px",
+                        borderRadius:6,
+                        background:B.charcoal,
+                        color:"#fff",
+                        fontSize:12,
+                        fontWeight:700,
+                        fontFamily:"'Instrument Sans',sans-serif",
+                        textDecoration:"none",
+                        letterSpacing:"0.02em",
+                      }}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden><path d="M8 3v7.5M5.5 8.5L8 11l2.5-2.5M4 14h8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                      Download US benefits PDF
+                    </a>
+                  ) : (
+                    <span style={{ fontFamily:"'Instrument Sans',sans-serif", fontSize:11, color:B.fog }}>PDF is not bundled in this environment; use the reference data in the repo.</span>
+                  )}
                 </div>
               )}
 
@@ -1689,7 +1762,7 @@ export default function KlaviyoWealthModel() {
                         { label:"Base Salary",       vals:years.map(y=>fmtC(y.salary)),             color:B.charcoal },
                         ...(offerMode && !showSignOnPublic
                           ? [{ label:"Bonus*", vals:years.map(y=>fmtC(y.bonus)), color:B.charcoal }]
-                          : [{ label:"Bonus* + Sign-On", vals:years.map(y=>fmtC(y.bonus+y.sOn)), color:B.charcoal }]),
+                          : [{ label:"Bonus (target, not guaranteed) + Sign-On", vals:years.map(y=>fmtC(y.bonus+y.sOn)), color:B.charcoal }]),
                         { label:"NH Grant (RSUs)",   vals:years.map(y=>fmtC(y[eqNhKey])),           color:B.poppy, bold:true },
                         { label:"Refresh grants",    vals:years.map(y=>fmtC(y[eqRfKey])),           color:B.eggplant, bold:true },
                         { label:"Est. Benefits Value", vals:years.map(()=>fmtC(annualBenefits)),    color:B.violet },
@@ -1711,6 +1784,9 @@ export default function KlaviyoWealthModel() {
                       </tr>
                     </tbody>
                   </table>
+                </div>
+                <div style={{ fontSize:10, color:B.fog, marginTop:10, lineHeight:1.45, fontFamily:"'Instrument Sans',sans-serif" }}>
+                  {BONUS_TARGET_FOOTNOTE}
                 </div>
               </div>
 
@@ -1745,12 +1821,12 @@ export default function KlaviyoWealthModel() {
                 <div style={{ fontSize:14, fontWeight:800, color:B.charcoal, marginBottom:16 }}>What Makes Klaviyo Different</div>
                 <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(240px, 1fr))", gap:12 }}>
                   {[
-                    { icon:"🏦", title:"401(k) — 100% Vested Day 1",         body:"4% employer match with immediate 100% vesting. Your retirement savings are yours from day one." },
                     { icon:"👶", title:"Industry-Leading Parental Leave",     body:"22 weeks fully paid for birthing parents. 16 weeks for non-birthing parents." },
+                    { icon:"🏦", title:"401(k) — 100% Vested Day 1",         body:"4% employer match with immediate 100% vesting. Your retirement savings are yours from day one." },
                     { icon:"🌍", title:"Global Sabbatical",                   body:"4 weeks fully paid after 5 years. Recharge, explore, pursue passion projects." },
-                    { icon:"📈", title:"ESPP — 15% Discount",                body:"Buy Klaviyo stock at a 15% discount via payroll deductions. Invest in the company you're building." },
                     { icon:"🧠", title:"Modern Health — Free Therapy",        body:"8 therapy + 8 coaching sessions per year at no cost. Household members included." },
                     { icon:"🎓", title:fmtC(2500)+" Learning Budget",         body:"Annual K-Pro Learn stipend to invest in skills, certifications, and courses." },
+                    { icon:"📈", title:"ESPP — 15% Discount",                body:"Buy Klaviyo stock at a 15% discount via payroll deductions. Invest in the company you're building." },
                   ].map(c=>(
                     <div key={c.title} style={{ background:B.mist, borderRadius:8, padding:"14px 16px", border:`1px solid ${B.border}` }}>
                       <div style={{ fontSize:20, marginBottom:8 }}>{c.icon}</div>
@@ -1764,14 +1840,14 @@ export default function KlaviyoWealthModel() {
               <div style={{ background:B.charcoal, borderRadius:10, padding:"26px 28px", marginBottom:16, border:"1px solid rgba(255,255,255,0.1)" }}>
                 <div style={{ fontSize:17, fontWeight:800, color:"#fff", letterSpacing:"-0.02em", marginBottom:8 }}>Ready to talk through your offer?</div>
                 <div style={{ fontSize:13, color:"rgba(255,255,255,0.55)", marginBottom:18, lineHeight:1.55, fontFamily:"'Instrument Sans',sans-serif" }}>
-                  Connect with {RECRUITER_CTA_CONFIG.recruiterName} for questions about your package and next steps.
+                  Connect with {(recruiterName || "").trim() || RECRUITER_CTA_CONFIG.recruiterName} for questions about your package and next steps.
                 </div>
                 <div style={{ display:"flex", flexWrap:"wrap", gap:14, alignItems:"center" }}>
                   <a
-                    href={`mailto:${RECRUITER_CTA_CONFIG.recruiterEmail}`}
+                    href={`mailto:${(recruiterEmail || "").trim() || RECRUITER_CTA_CONFIG.recruiterEmail}`}
                     style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:13, fontWeight:600, color:B.lemon, textDecoration:"none", borderBottom:"1px solid rgba(252,252,126,0.4)" }}
                   >
-                    {RECRUITER_CTA_CONFIG.recruiterEmail}
+                    {(recruiterEmail || "").trim() || RECRUITER_CTA_CONFIG.recruiterEmail}
                   </a>
                   {RECRUITER_CTA_CONFIG.calendarUrl ? (
                     <a
