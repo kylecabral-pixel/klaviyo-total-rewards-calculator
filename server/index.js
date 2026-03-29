@@ -2,6 +2,7 @@
  * Local HTTP entry. Vercel uses `api/index.js` + `serverless-http` with the same `app`.
  * Route modules: `server/routes/*`; integrations: `server/integrations/*`.
  */
+import './bootstrap-env.js'
 import app from './app.js'
 import { SERVICE_NAME, SERVICE_VERSION } from './meta.js'
 

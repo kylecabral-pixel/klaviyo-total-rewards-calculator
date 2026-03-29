@@ -36,6 +36,10 @@ export function getDeploymentMeta() {
 
 /** Curated list for GET /api discovery (keep in sync with server/routes). */
 export const API_ENDPOINTS = [
+  'GET /api/auth/session',
+  'GET /api/auth/klaviyo/start',
+  'GET /api/auth/klaviyo/callback',
+  'POST /api/auth/logout',
   'GET /api/health',
   'GET /api — discovery (this list)',
   'GET /api/offer?token=',

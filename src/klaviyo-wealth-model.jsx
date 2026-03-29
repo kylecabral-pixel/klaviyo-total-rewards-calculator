@@ -845,7 +845,7 @@ export default function KlaviyoWealthModel() {
       return;
     }
     let cancelled = false;
-    fetch("/api/benefits/us")
+    fetch("/api/benefits/us", { credentials: "include" })
       .then((r) => r.text())
       .then((text) => tryParseJsonResponseText(text))
       .then((data) => {
@@ -916,7 +916,9 @@ export default function KlaviyoWealthModel() {
       };
     }
 
-    fetch(`/api/offer?token=${encodeURIComponent(t)}`)
+    fetch(`/api/offer?token=${encodeURIComponent(t)}`, {
+      credentials: "include",
+    })
       .then((r) => r.text())
       .then((text) => tryParseJsonResponseText(text))
       .then((data) => applyOfferPayload(data))

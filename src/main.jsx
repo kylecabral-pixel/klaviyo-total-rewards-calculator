@@ -1,6 +1,7 @@
 import { StrictMode, Component } from 'react'
 import { createRoot } from 'react-dom/client'
 import KlaviyoWealthModel from './klaviyo-wealth-model.jsx'
+import { SiteAuthGate } from './SiteAuthGate.jsx'
 
 class ErrorBoundary extends Component {
   constructor(props) {
@@ -45,7 +46,9 @@ class ErrorBoundary extends Component {
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <ErrorBoundary>
-      <KlaviyoWealthModel />
+      <SiteAuthGate>
+        <KlaviyoWealthModel />
+      </SiteAuthGate>
     </ErrorBoundary>
   </StrictMode>,
 )
